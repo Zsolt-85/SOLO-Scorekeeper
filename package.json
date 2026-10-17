@@ -1,0 +1,9 @@
+{
+  "name": "noting-more-scorekeeper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Private score keeper for Noting More — lowest total wins",
+  "scripts": {
+    "test": "node --test"
+  }
+}
