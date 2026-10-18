@@ -174,6 +174,16 @@
         return player;
       },
 
+      removePlayer: function (id) {
+        const player = findPlayer(id);
+        if (!player) throw new Error('That player is not on your roster.');
+        state.players = state.players.filter(function (other) { return other.id !== id; });
+        const at = state.selection.indexOf(id);
+        if (at !== -1) state.selection.splice(at, 1);
+        persist();
+        return player;
+      },
+
       toggleSeat: function (id) {
         const at = state.selection.indexOf(id);
         if (at === -1) state.selection.push(id);

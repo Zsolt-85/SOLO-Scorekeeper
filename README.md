@@ -8,7 +8,7 @@ A tiny, private score keeper for the card game **SOLO** (and **UNO**). Add playe
 
 Open `index.html` in any modern browser. There is no build step and nothing to install.
 
-- **Home** — add players (emoji + name), tap who is playing, start a game. Each player has a ✎ button to change their name or picture.
+- **Home** — add players (emoji + name) with the *Add player* card, tap a card to pick who is playing, then start a game. *Edit players* opens manage mode, where each card gets edit and delete controls.
 - **Game** — one points box per player each round, running totals, undo, and the option to add a late player.
 - **Podium** — animated reveal. Lowest total wins by default (gold bar + crown); flip the scoring mode for UNO.
 - **History** — every finished game, newest first; tap one to reopen its podium.
@@ -22,7 +22,7 @@ Scores live in the browser's `localStorage` (key `noting-more.v1`) and never lea
 node --test
 ```
 
-52 tests covering the scoring/ranking maths and the storage layer. Needs Node 18+.
+57 tests covering the scoring/ranking maths and the storage layer. Needs Node 18+.
 
 ## Deploy
 

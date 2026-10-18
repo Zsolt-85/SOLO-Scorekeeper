@@ -335,3 +335,45 @@ test('editing a player does not rewrite a finished game', () => {
   assert.equal(store.getState().games[0].seats[0].emoji, '🐱');
   assert.equal(store.getState().players[0].emoji, '🦊');
 });
+
+test('removePlayer drops the player from the roster', () => {
+  const store = createStore(fakeStorage());
+  const maya = store.addPlayer('Maya', '🐱');
+  store.addPlayer('Dana', '🦊');
+  store.removePlayer(maya.id);
+  assert.deepEqual(store.getState().players.map((p) => p.name), ['Dana']);
+});
+
+test('removePlayer also drops the player from the selection', () => {
+  const store = createStore(fakeStorage());
+  const maya = store.addPlayer('Maya', '🐱');
+  const dana = store.addPlayer('Dana', '🦊');
+  store.toggleSeat(maya.id);
+  store.toggleSeat(dana.id);
+  store.removePlayer(maya.id);
+  assert.deepEqual(store.getState().selection, [dana.id]);
+});
+
+test('removePlayer rejects an unknown player', () => {
+  const store = createStore(fakeStorage());
+  assert.throws(() => store.removePlayer('nobody'), /not on your roster/);
+});
+
+test('removing a player does not rewrite a finished game', () => {
+  const store = createStore(fakeStorage());
+  const [maya] = seatThree(store);
+  store.startGame();
+  store.recordRound([1, 2, 3]);
+  store.finishGame();
+  store.removePlayer(maya.id);
+  assert.deepEqual(store.getState().games[0].seats.map((s) => s.name), ['Maya', 'Dana', 'Tobi']);
+  assert.deepEqual(store.getState().players.map((p) => p.name), ['Dana', 'Tobi']);
+});
+
+test('a removed player stays removed after a reload', () => {
+  const storage = fakeStorage();
+  const first = createStore(storage);
+  const maya = first.addPlayer('Maya', '🐱');
+  first.removePlayer(maya.id);
+  assert.deepEqual(createStore(storage).getState().players, []);
+});

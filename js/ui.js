@@ -9,7 +9,17 @@
     '🐇', '🦔', '🐿️', '🦥', '🐁', '🦀', '🐠', '🦈', '🐊', '🐡'
   ];
 
-  const ui = { addPanelOpen: false, addEmoji: EMOJI[0], addTarget: 'roster', addEditId: null, addError: '', addName: '', bannerDismissed: false };
+  const ICONS = {
+    pencil: { stroke: 2, paths: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>' },
+    trash: { stroke: 2, paths: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>' },
+    check: { stroke: 3, paths: '<path d="M20 6 9 17l-5-5"/>' },
+    plus: { stroke: 2, paths: '<path d="M12 5v14"/><path d="M5 12h14"/>' }
+  };
+
+  const ui = {
+    addPanelOpen: false, addEmoji: EMOJI[0], addTarget: 'roster', addEditId: null,
+    addError: '', addName: '', bannerDismissed: false, manageMode: false, pendingDelete: null
+  };
 
   const views = {
     home: document.getElementById('view-home'),
@@ -24,6 +34,14 @@
     return String(value)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function icon(name, size) {
+    const spec = ICONS[name];
+    return '<svg class="icon" viewBox="0 0 24 24" width="' + size + '" height="' + size
+      + '" fill="none" stroke="currentColor" stroke-width="' + spec.stroke
+      + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+      + spec.paths + '</svg>';
   }
 
   function currentRoute() {
@@ -77,6 +95,36 @@
       : 'Standard scoring · most points wins';
   }
 
+  function cardHtml(player, seated) {
+    const selected = seated.indexOf(player.id) !== -1;
+    const name = escapeHtml(player.name);
+    const body = '<span class="disc" aria-hidden="true">' + escapeHtml(player.emoji) + '</span>'
+      + (selected ? '<span class="tick" aria-hidden="true">' + icon('check', 13) + '</span>' : '')
+      + '<span class="nm">' + name + '</span>'
+      + '<span class="st">' + (selected ? 'playing' : (ui.manageMode ? 'not playing' : 'tap to add')) + '</span>';
+    const classes = 'pcard' + (selected ? ' on' : '');
+
+    if (!ui.manageMode) {
+      return '<article class="' + classes + '" style="--pc:' + escapeHtml(player.color) + '">'
+        + '<button type="button" class="pcard-body" data-action="toggle-seat" data-id="' + player.id
+        + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' + body + '</button></article>';
+    }
+
+    const confirming = ui.pendingDelete === player.id;
+    const tools = confirming
+      ? '<div class="tools">'
+        + '<button type="button" data-action="cancel-delete" aria-label="Cancel deleting ' + name + '">Cancel</button>'
+        + '<button type="button" class="del solid" data-action="confirm-delete" data-id="' + player.id
+        + '" aria-label="Yes, delete ' + name + '">Delete</button></div>'
+      : '<div class="tools">'
+        + '<button type="button" data-action="edit-player" data-id="' + player.id
+        + '" aria-label="Edit ' + name + '" title="Edit">' + icon('pencil', 16) + '</button>'
+        + '<button type="button" class="del" data-action="ask-delete" data-id="' + player.id
+        + '" aria-label="Delete ' + name + '" title="Delete">' + icon('trash', 16) + '</button></div>';
+    return '<article class="' + classes + (confirming ? ' confirming' : '') + '" style="--pc:'
+      + escapeHtml(player.color) + '"><span class="pcard-body static">' + body + '</span>' + tools + '</article>';
+  }
+
   function renderHome() {
     const state = store.getState();
     const seated = state.selection;
@@ -108,23 +156,20 @@
         + '</section>';
     }
 
-    html += '<section class="section"><div class="section-head"><h2>Players</h2>'
-      + '<button class="btn ghost" data-action="open-add">+ Add player</button></div>';
+    html += '<section class="section"><div class="section-head"><h2>Players</h2>';
+    if (state.players.length > 0) {
+      html += '<button type="button" class="btn ghost" data-action="toggle-manage" aria-pressed="'
+        + (ui.manageMode ? 'true' : 'false') + '">' + (ui.manageMode ? 'Done' : 'Edit players') + '</button>';
+    }
+    html += '</div>';
     if (state.players.length === 0) {
       html += '<p class="hint">No players yet &mdash; add the first one.</p>';
-    } else {
-      html += '<div class="chips">' + state.players.map(function (player) {
-        const pressed = seated.indexOf(player.id) !== -1 ? 'true' : 'false';
-        return '<span class="chip-row">'
-          + '<button class="chip" data-action="toggle-seat" data-id="' + player.id
-          + '" aria-pressed="' + pressed + '">' + escapeHtml(player.emoji) + ' '
-          + escapeHtml(player.name) + '</button>'
-          + '<button class="chip-edit" data-action="edit-player" data-id="' + player.id
-          + '" aria-label="Edit ' + escapeHtml(player.name) + '">✎</button>'
-          + '</span>';
-      }).join('') + '</div>';
     }
-    html += '</section>';
+    html += '<div class="roster">' + state.players.map(function (player) {
+      return cardHtml(player, seated);
+    }).join('') + '<button type="button" class="pcard add-card" data-action="open-add">'
+      + '<span class="add-face" aria-hidden="true">' + icon('plus', 20) + '</span>'
+      + '<span class="nm">Add player</span></button></div></section>';
 
     if (ui.addPanelOpen) html += addPanelHtml();
     if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
@@ -155,8 +200,8 @@
     html += '<div class="tiles">' + game.seats.map(function (seat, i) {
       const classes = played && totals[i] === leader ? 'tile leading' : 'tile';
       return '<article class="' + classes + '" style="--tile-color:' + escapeHtml(seat.color) + '">'
-        + '<div class="tile-head"><span class="tile-emoji">' + escapeHtml(seat.emoji) + '</span>'
-        + '<span class="tile-name">' + escapeHtml(seat.name) + '</span></div>'
+        + '<div class="tile-head"><span class="disc" aria-hidden="true">' + escapeHtml(seat.emoji)
+        + '</span><span class="tile-name">' + escapeHtml(seat.name) + '</span></div>'
         + '<div class="tile-total">' + totals[i] + '</div>'
         + '<p class="tile-caption">total</p>'
         + '<input class="input tile-input" inputmode="numeric" pattern="[0-9-]*"'
@@ -384,6 +429,19 @@
       focusName();
     }
     else if (action === 'toggle-seat') { store.toggleSeat(trigger.getAttribute('data-id')); render(); }
+    else if (action === 'toggle-manage') {
+      ui.manageMode = !ui.manageMode;
+      ui.pendingDelete = null;
+      render();
+    }
+    else if (action === 'ask-delete') { ui.pendingDelete = trigger.getAttribute('data-id'); render(); }
+    else if (action === 'cancel-delete') { ui.pendingDelete = null; render(); }
+    else if (action === 'confirm-delete') {
+      try { store.removePlayer(trigger.getAttribute('data-id')); }
+      catch (error) { ui.addError = error.message; }
+      ui.pendingDelete = null;
+      render();
+    }
     else if (action === 'resume-game') navigate('game');
     else if (action === 'open-game') navigate('podium/' + trigger.getAttribute('data-id'));
     else if (action === 'start-game') {
@@ -440,6 +498,8 @@
     ui.addName = '';
     ui.addTarget = 'roster';
     ui.addEditId = null;
+    ui.manageMode = false;
+    ui.pendingDelete = null;
     render();
   });
 
