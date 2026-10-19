@@ -1,7 +1,12 @@
 (function () {
   'use strict';
 
-  const store = Store.createStore(window.localStorage);
+  const local = Store.createStore(window.localStorage);
+  const adapter = window.Firebase && window.Firebase.configured() ? window.Firebase : null;
+
+  let space = null;
+  let backend = local;
+
   const EMOJI = [
     '🐱', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸',
     '🐵', '🐔', '🐧', '🐦', '🦉', '🦄', '🐝', '🦋', '🐙', '🦑',
@@ -18,7 +23,9 @@
 
   const ui = {
     addPanelOpen: false, addEmoji: EMOJI[0], addTarget: 'roster', addEditId: null,
-    addError: '', addName: '', bannerDismissed: false, manageMode: false, pendingDelete: null
+    addError: '', addName: '', bannerDismissed: false, manageMode: false, pendingDelete: null,
+    lobbyForm: null, lobbyName: '', lobbyCode: '', lobbyNote: '',
+    roundGameId: null, roundDraft: {}
   };
 
   const views = {
@@ -51,16 +58,123 @@
   }
 
   function navigate(path) {
-    location.hash = '#/' + path;
+    const next = '#/' + path;
+    // Re-rendering here matters: switching back to the route we are already on
+    // (leaving a lobby, say) fires no hashchange of its own.
+    if (location.hash === next) { render(); return; }
+    location.hash = next;
+  }
+
+  function gameFor(id) {
+    const game = id ? backend.getGame(id) : backend.getActiveGame();
+    if (!game || game.finishedAt !== null) return null;
+    return game;
+  }
+
+  function currentGameId() {
+    const route = currentRoute();
+    if (route.name !== 'game') return null;
+    const game = gameFor(route.id);
+    return game ? game.id : null;
+  }
+
+  function inLobby() {
+    return space !== null;
+  }
+
+  function deviceId() {
+    let id = null;
+    try { id = window.localStorage.getItem('noting-more.device'); } catch (error) { id = null; }
+    if (!id) {
+      id = 'd' + Math.random().toString(36).slice(2, 10);
+      try { window.localStorage.setItem('noting-more.device', id); } catch (error) { /* fine */ }
+    }
+    return id;
+  }
+
+  function chunkCode(code) {
+    return String(code || '').replace(/(.{4})(?=.)/, '$1 ');
+  }
+
+  function enterLobby(code, name) {
+    if (space) space.leave();
+    space = Space.create({
+      adapter: adapter,
+      code: code,
+      name: name,
+      deviceId: deviceId()
+    });
+    backend = space;
+    space.subscribe(function () {
+      if (space) render();
+    });
+    render();
+  }
+
+  function freshCode(attempts) {
+    const left = attempts === undefined ? 5 : attempts;
+    const code = Space.newCode();
+    return adapter.spaceExists(code).then(function (taken) {
+      if (!taken) return code;
+      if (left <= 0) throw new Error('Could not find a free lobby code. Please try again.');
+      return freshCode(left - 1);
+    });
+  }
+
+  function createLobby(name) {
+    const title = String(name || '').trim();
+    ui.lobbyNote = '';
+    freshCode().then(function (code) {
+      return adapter.createSpace(code, title).then(function () {
+        local.setLobby({ code: code, name: title, joinedAt: Date.now() });
+        enterLobby(code, title);
+      });
+    }).catch(function (error) {
+      ui.addError = (error && error.message) || 'The lobby could not be created.';
+      render();
+    });
+  }
+
+  function joinLobby(input) {
+    const code = Space.normalizeCode(input);
+    if (!Space.validCode(code)) {
+      ui.addError = 'A lobby code is 8 characters, using letters and numbers.';
+      render();
+      return;
+    }
+    ui.addError = '';
+    adapter.spaceExists(code).then(function (exists) {
+      if (!exists) {
+        ui.addError = 'No lobby found for that code.';
+        render();
+        return;
+      }
+      local.setLobby({ code: code, name: '', joinedAt: Date.now() });
+      enterLobby(code, '');
+    }).catch(function (error) {
+      ui.addError = (error && error.message) || 'The lobby could not be reached.';
+      render();
+    });
+  }
+
+  function leaveLobby() {
+    if (space) space.leave();
+    space = null;
+    backend = local;
+    local.setLobby(null);
+    ui.lobbyForm = null;
+    ui.lobbyName = '';
+    ui.lobbyCode = '';
+    navigate('home');
   }
 
   function refreshBanner() {
-    if (ui.bannerDismissed || !store.isDegraded()) {
+    if (ui.bannerDismissed || !backend.isDegraded()) {
       banner.hidden = true;
       banner.textContent = '';
       return;
     }
-    const message = store.degradedReason() === 'blocked'
+    const message = backend.degradedReason() === 'blocked'
       ? 'This browser is blocking storage, so scores will be lost when you close the tab.'
       : 'Scores could not be saved to this browser and may not persist.';
     banner.innerHTML = '<span>' + escapeHtml(message) + '</span>'
@@ -70,15 +184,22 @@
 
   function render() {
     const route = currentRoute();
+    if (route.name === 'game' && !gameFor(route.id)) {
+      // Someone else may have ended this game: show them the result rather than
+      // dropping them on the home screen mid-celebration.
+      if (backend.getGame(route.id)) { navigate('podium/' + route.id); return; }
+      navigate('home');
+      return;
+    }
     if (route.name === 'podium') {
-      const target = route.id ? store.getGame(route.id) : store.getState().games[0];
+      const target = route.id ? backend.getGame(route.id) : backend.finishedGames()[0];
       if (!target) { navigate('home'); return; }
     }
     Object.keys(views).forEach(function (name) {
       views[name].hidden = name !== route.name;
     });
     if (route.name === 'home') views.home.innerHTML = renderHome();
-    if (route.name === 'game') views.game.innerHTML = renderGame();
+    if (route.name === 'game') views.game.innerHTML = renderGame(route.id);
     if (route.name === 'podium') { views.podium.innerHTML = renderPodium(route.id); Reveal.playPodium(views.podium); }
     if (route.name === 'history') views.history.innerHTML = renderHistory();
     if (route.name === 'rules') views.rules.innerHTML = renderRules();
@@ -86,7 +207,7 @@
   }
 
   function lowerWins() {
-    return store.getSettings().lowerWins;
+    return backend.getSettings().lowerWins;
   }
 
   function tagline() {
@@ -125,15 +246,88 @@
       + escapeHtml(player.color) + '"><span class="pcard-body static">' + body + '</span>' + tools + '</article>';
   }
 
-  function renderHome() {
-    const state = store.getState();
-    const seated = state.selection;
-    let html = '';
-
-    html += '<header class="topbar"><div><h1 class="wordmark">SOLO Scorekeeper</h1>'
+  function soloHeader() {
+    return '<header class="topbar"><div><h1 class="wordmark">SOLO Scorekeeper</h1>'
       + '<p class="tagline">' + escapeHtml(tagline()) + '</p></div>'
       + '<nav class="topbar-links"><a class="btn ghost" href="#/rules">Rules</a>'
       + '<a class="btn ghost" href="#/history">History</a></nav></header>';
+  }
+
+  function lobbyHeader() {
+    const status = space.status();
+    return '<header class="topbar"><div>'
+      + '<h1 class="wordmark">' + escapeHtml(status.name || 'Shared scorekeeper') + '</h1>'
+      + '<p class="tagline"><span class="code-chip">' + escapeHtml(chunkCode(status.code)) + '</span>'
+      + '<span class="presence">' + status.online + ' here</span></p></div>'
+      + '<nav class="topbar-links"><a class="btn ghost" href="#/rules">Rules</a>'
+      + '<a class="btn ghost" href="#/history">History</a></nav></header>';
+  }
+
+  function playTogetherHtml() {
+    if (space) {
+      const status = space.status();
+      const problem = status.problem
+        ? '<p class="error">' + escapeHtml(status.problem) + '</p>' : '';
+      let html = '<section class="panel"><p class="label">This lobby</p>';
+      if (ui.lobbyForm === 'rename') {
+        html += '<form id="rename-lobby-form">'
+          + '<label class="label" for="lobby-name">Name this space</label>'
+          + '<input id="lobby-name" class="input" maxlength="24" autocomplete="off" value="'
+          + escapeHtml(ui.lobbyName) + '">'
+          + '<div class="row"><button type="submit" class="btn primary">Save name</button>'
+          + '<button type="button" class="btn ghost" data-action="close-lobby-form">Cancel</button></div>'
+          + '</form>';
+      } else {
+        html += '<p class="hint">Everyone with the code <strong>' + escapeHtml(chunkCode(status.code))
+          + '</strong> sees and edits this scorekeeper. Scores save to the internet, not just this phone.</p>'
+          + problem
+          + '<div class="row"><button type="button" class="btn ghost" data-action="rename-lobby">Rename</button>'
+          + '<button type="button" class="btn ghost" data-action="leave-lobby">Leave lobby</button></div>';
+      }
+      if (ui.lobbyNote) html += '<p class="hint">' + escapeHtml(ui.lobbyNote) + '</p>';
+      return html + '</section>';
+    }
+
+    if (!adapter) {
+      return '<section class="panel"><p class="label">Play together</p>'
+        + '<p class="hint">Sharing is not set up on this copy of the app, so scores stay on this phone.</p>'
+        + '</section>';
+    }
+
+    let html = '<section class="panel"><p class="label">Play together</p>'
+      + '<p class="hint">Share one scorekeeper with another phone: the players, the games and the history.</p>';
+
+    if (ui.lobbyForm === 'create') {
+      html += '<form id="create-lobby-form">'
+        + '<label class="label" for="lobby-name">Name this space (optional)</label>'
+        + '<input id="lobby-name" class="input" maxlength="24" autocomplete="off" placeholder="Kitchen table" value="'
+        + escapeHtml(ui.lobbyName) + '">'
+        + '<div class="row"><button type="submit" class="btn primary">Create lobby</button>'
+        + '<button type="button" class="btn ghost" data-action="close-lobby-form">Cancel</button></div>'
+        + '</form>';
+    } else if (ui.lobbyForm === 'join') {
+      html += '<form id="join-lobby-form">'
+        + '<label class="label" for="lobby-code">Lobby code</label>'
+        + '<input id="lobby-code" class="input" maxlength="9" autocomplete="off" autocapitalize="characters"'
+        + ' spellcheck="false" placeholder="ABCD 2345" value="' + escapeHtml(ui.lobbyCode) + '">'
+        + '<div class="row"><button type="submit" class="btn primary">Join lobby</button>'
+        + '<button type="button" class="btn ghost" data-action="close-lobby-form">Cancel</button></div>'
+        + '</form>';
+    } else {
+      html += '<div class="row"><button type="button" class="btn primary" data-action="open-create-lobby">Create a lobby</button>'
+        + '<button type="button" class="btn ghost" data-action="open-join-lobby">Enter a code</button></div>';
+    }
+
+    if (ui.lobbyNote) html += '<p class="hint">' + escapeHtml(ui.lobbyNote) + '</p>';
+    return html + '</section>';
+  }
+
+  function renderHome() {
+    const state = backend.getState();
+    const seated = state.selection;
+    let html = '';
+
+    html += inLobby() ? lobbyHeader() : soloHeader();
 
     const lower = lowerWins();
     html += '<section class="panel"><p class="label">Scoring</p>'
@@ -146,14 +340,18 @@
         ? 'House rules: the lowest total is crowned Winner.'
         : 'Standard UNO/SOLO: the highest total is crowned Winner.') + '</p></section>';
 
-    if (state.currentGame) {
-      const names = state.currentGame.seats.map(function (seat) { return seat.name; }).join(' · ');
-      html += '<section class="panel"><p class="label">Game in progress</p>'
-        + '<h2 style="font-size:1.05rem">' + state.currentGame.rounds.length + ' round'
-        + (state.currentGame.rounds.length === 1 ? '' : 's') + ' played</h2>'
-        + '<p class="muted">' + escapeHtml(names) + '</p>'
-        + '<div class="row"><button class="btn primary" data-action="resume-game">Resume game</button></div>'
-        + '</section>';
+    const active = backend.activeGames();
+    if (active.length > 0) {
+      html += '<section class="section"><div class="section-head"><h2>Playing now</h2></div>'
+        + '<ul class="games">' + active.map(function (game) {
+          const names = game.seats.map(function (seat) { return seat.name; }).join(' · ');
+          const rounds = game.rounds.length;
+          return '<li><button class="game-row" data-action="resume-game" data-id="' + game.id + '">'
+            + '<span class="label">Round ' + (rounds + 1) + '</span>'
+            + '<span class="game-winner">' + escapeHtml(names) + '</span>'
+            + '<span class="game-totals">' + rounds + ' round' + (rounds === 1 ? '' : 's') + ' played</span>'
+            + '</button></li>';
+        }).join('') + '</ul></section>';
     }
 
     html += '<section class="section"><div class="section-head"><h2>Players</h2>';
@@ -174,19 +372,22 @@
     if (ui.addPanelOpen) html += addPanelHtml();
     if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
 
-    if (!state.currentGame) {
-      const ready = state.selection.length > 0;
-      html += '<div class="footer"><button class="btn primary big" data-action="start-game"'
-        + (ready ? '' : ' disabled') + '>Start game</button>';
-      if (!ready) html += '<p class="hint">Tap the players who are playing tonight.</p>';
-      html += '</div>';
-    }
+    html += playTogetherHtml();
+
+    const ready = state.selection.length > 0;
+    html += '<div class="footer"><button class="btn primary big" data-action="start-game"'
+      + (ready ? '' : ' disabled') + '>Start game</button>';
+    if (!ready) html += '<p class="hint">Tap the players who are playing tonight.</p>';
+    html += '</div>';
     return html;
   }
 
-  function renderGame() {
-    const game = store.getState().currentGame;
+  function renderGame(gameId) {
+    const game = gameFor(gameId);
     if (!game) { navigate('home'); return ''; }
+    // A paired lobby re-renders on every snapshot, so whatever is half-typed has
+    // to be carried across renders or the other phone would wipe it.
+    if (ui.roundGameId !== gameId) { ui.roundGameId = gameId; ui.roundDraft = {}; }
     const totals = Ranking.totalsFor(game);
     const played = game.rounds.length > 0;
     const leader = played
@@ -197,6 +398,12 @@
       + '</p><h1 class="wordmark">SOLO Scorekeeper</h1></div>'
       + '<a class="btn ghost" href="#/home">Leave</a></header>';
 
+    if (inLobby()) {
+      const status = space.status();
+      html += '<p class="live">● Live &middot; ' + escapeHtml(chunkCode(status.code)) + ' &middot; '
+        + status.online + ' here. Everyone with the code sees this game.</p>';
+    }
+
     html += '<div class="tiles">' + game.seats.map(function (seat, i) {
       const classes = played && totals[i] === leader ? 'tile leading' : 'tile';
       return '<article class="' + classes + '" style="--tile-color:' + escapeHtml(seat.color) + '">'
@@ -206,7 +413,8 @@
         + '<p class="tile-caption">total</p>'
         + '<input class="input tile-input" inputmode="numeric" pattern="[0-9-]*"'
         + ' data-seat="' + escapeHtml(seat.id) + '" aria-label="Points for ' + escapeHtml(seat.name)
-        + ' this round" autocomplete="off"></article>';
+        + ' this round" autocomplete="off" value="' + escapeHtml(ui.roundDraft[seat.id] || '')
+        + '"></article>';
     }).join('') + '</div>';
 
     if (ui.addPanelOpen) html += addPanelHtml();
@@ -230,9 +438,7 @@
   }
 
   function renderPodium(gameId) {
-    const state = store.getState();
-    const game = state.games[0];
-    const target = gameId ? store.getGame(gameId) : game;
+    const target = gameId ? backend.getGame(gameId) : backend.finishedGames()[0];
     if (!target) { navigate('home'); return ''; }
     const ranked = Ranking.rank(target, lowerWins());
     const highest = ranked.length ? Math.max.apply(null, ranked.map(function (r) { return r.total; })) : 0;
@@ -259,8 +465,10 @@
     if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
 
     html += '<div class="actions">';
-    if (state.currentGame) {
-      html += '<button class="btn primary big" data-action="resume-game">Resume game</button>'
+    const active = backend.activeGames();
+    if (active.length > 0) {
+      html += '<button class="btn primary big" data-action="resume-game" data-id="' + active[0].id
+        + '">Resume game</button>'
         + '<p class="hint">A game is in progress.</p>';
     } else {
       html += '<button class="btn primary big" data-action="play-again">Play again</button>';
@@ -271,7 +479,7 @@
   }
 
   function renderHistory() {
-    const games = store.getState().games;
+    const games = backend.finishedGames();
     let html = '<header class="topbar"><div><h1 class="wordmark">History</h1>'
       + '<p class="tagline">' + games.length + ' game' + (games.length === 1 ? '' : 's') + ' played</p></div>'
       + '<a class="btn ghost" href="#/home">Back</a></header>';
@@ -358,15 +566,17 @@
   }
 
   function saveRound() {
-    const before = Ranking.totalsFor(store.getState().currentGame || { seats: [], rounds: [] });
+    const gameId = currentGameId();
+    const before = Ranking.totalsFor(gameFor(gameId) || { seats: [], rounds: [] });
     const boxes = Array.prototype.slice.call(document.querySelectorAll('.tile-input'));
     try {
-      store.recordRound(boxes.map(function (box) { return box.value; }));
+      backend.recordRound(gameId, boxes.map(function (box) { return box.value; }));
     } catch (error) {
       ui.addError = error.message;
       render();
       return;
     }
+    ui.roundDraft = {};
     render();
     Array.prototype.slice.call(document.querySelectorAll('.tile-total')).forEach(function (element, i) {
       const from = Number.isFinite(before[i]) ? before[i] : 0;
@@ -415,7 +625,7 @@
     if (action === 'open-add') { ui.addPanelOpen = true; ui.addTarget = 'roster'; ui.addEditId = null; ui.addName = ''; ui.addEmoji = EMOJI[0]; render(); focusName(); }
     else if (action === 'close-add') closeAddPanel();
     else if (action === 'edit-player') {
-      const player = store.getState().players.find(function (p) { return p.id === trigger.getAttribute('data-id'); });
+      const player = backend.getState().players.find(function (p) { return p.id === trigger.getAttribute('data-id'); });
       if (player) {
         ui.addPanelOpen = true; ui.addTarget = 'edit'; ui.addEditId = player.id;
         ui.addName = player.name; ui.addEmoji = player.emoji; render(); focusName();
@@ -428,7 +638,7 @@
       render();
       focusName();
     }
-    else if (action === 'toggle-seat') { store.toggleSeat(trigger.getAttribute('data-id')); render(); }
+    else if (action === 'toggle-seat') { backend.toggleSeat(trigger.getAttribute('data-id')); render(); }
     else if (action === 'toggle-manage') {
       ui.manageMode = !ui.manageMode;
       ui.pendingDelete = null;
@@ -437,53 +647,89 @@
     else if (action === 'ask-delete') { ui.pendingDelete = trigger.getAttribute('data-id'); render(); }
     else if (action === 'cancel-delete') { ui.pendingDelete = null; render(); }
     else if (action === 'confirm-delete') {
-      try { store.removePlayer(trigger.getAttribute('data-id')); }
+      try { backend.removePlayer(trigger.getAttribute('data-id')); }
       catch (error) { ui.addError = error.message; }
       ui.pendingDelete = null;
       render();
     }
-    else if (action === 'resume-game') navigate('game');
+    else if (action === 'resume-game') {
+      const id = trigger.getAttribute('data-id');
+      navigate(id ? 'game/' + id : 'game');
+    }
     else if (action === 'open-game') navigate('podium/' + trigger.getAttribute('data-id'));
     else if (action === 'start-game') {
-      try { store.startGame(); navigate('game'); }
+      try { navigate('game/' + backend.startGame().id); }
       catch (error) { ui.addError = error.message; render(); }
     }
     else if (action === 'save-round') saveRound();
     else if (action === 'undo-round') {
-      try { store.undoRound(); } catch (error) { ui.addError = error.message; }
+      try { backend.undoRound(currentGameId()); } catch (error) { ui.addError = error.message; }
       render();
     }
     else if (action === 'open-add-mid') { ui.addPanelOpen = true; ui.addTarget = 'game'; ui.addEditId = null; ui.addName = ''; ui.addEmoji = EMOJI[0]; render(); focusName(); }
     else if (action === 'end-game') {
-      try { store.finishGame(); navigate('podium'); }
+      try { navigate('podium/' + backend.finishGame(currentGameId()).id); }
       catch (error) { ui.addError = error.message; render(); }
     }
     else if (action === 'play-again') {
-      try { store.playAgain(currentRoute().id || (store.getState().games[0] && store.getState().games[0].id)); navigate('game'); }
+      try { navigate('game/' + backend.playAgain(currentRoute().id || null).id); }
       catch (error) { ui.addError = error.message; render(); }
     }
     else if (action === 'new-players') navigate('home');
     else if (action === 'set-scoring') {
-      store.setLowerWins(trigger.getAttribute('data-lower') === 'true');
+      backend.setLowerWins(trigger.getAttribute('data-lower') === 'true');
       render();
     }
     else if (action === 'dismiss-banner') { ui.bannerDismissed = true; refreshBanner(); }
+    else if (action === 'open-create-lobby') {
+      ui.lobbyForm = 'create'; ui.addError = ''; render(); focusById('lobby-name');
+    }
+    else if (action === 'open-join-lobby') {
+      ui.lobbyForm = 'join'; ui.addError = ''; render(); focusById('lobby-code');
+    }
+    else if (action === 'close-lobby-form') { ui.lobbyForm = null; ui.addError = ''; render(); }
+    else if (action === 'rename-lobby') {
+      ui.lobbyForm = 'rename'; ui.lobbyName = space.status().name;
+      ui.addError = ''; render(); focusById('lobby-name');
+    }
+    else if (action === 'leave-lobby') leaveLobby();
   });
 
   document.addEventListener('input', function (event) {
-    if (event.target.id !== 'new-player-name') return;
-    ui.addName = event.target.value;
+    if (event.target.id === 'new-player-name') ui.addName = event.target.value;
+    else if (event.target.id === 'lobby-name') ui.lobbyName = event.target.value;
+    else if (event.target.id === 'lobby-code') ui.lobbyCode = event.target.value;
+    else if (event.target.getAttribute('data-seat')) {
+      ui.roundDraft[event.target.getAttribute('data-seat')] = event.target.value;
+    }
   });
 
   document.addEventListener('submit', function (event) {
+    if (event.target.id === 'create-lobby-form') {
+      event.preventDefault();
+      ui.lobbyName = document.getElementById('lobby-name').value;
+      createLobby(ui.lobbyName);
+      return;
+    }
+    if (event.target.id === 'join-lobby-form') {
+      event.preventDefault();
+      ui.lobbyCode = document.getElementById('lobby-code').value;
+      joinLobby(ui.lobbyCode);
+      return;
+    }
+    if (event.target.id === 'rename-lobby-form') {
+      event.preventDefault();
+      renameLobby(document.getElementById('lobby-name').value);
+      return;
+    }
     if (event.target.id !== 'add-player-form') return;
     event.preventDefault();
     const name = document.getElementById('new-player-name').value;
     ui.addName = name;
     try {
-      if (ui.addTarget === 'edit') store.updatePlayer(ui.addEditId, name, ui.addEmoji);
-      else if (ui.addTarget === 'game') store.addPlayerToCurrentGame(name, ui.addEmoji);
-      else store.addPlayer(name, ui.addEmoji);
+      if (ui.addTarget === 'edit') backend.updatePlayer(ui.addEditId, name, ui.addEmoji);
+      else if (ui.addTarget === 'game') backend.addPlayerToGame(currentGameId(), name, ui.addEmoji);
+      else backend.addPlayer(name, ui.addEmoji);
       closeAddPanel();
     } catch (error) {
       ui.addError = error.message;
@@ -503,10 +749,35 @@
     render();
   });
 
+  function focusById(id) {
+    const field = document.getElementById(id);
+    if (field) field.focus();
+  }
+
   function focusName() {
     const field = document.getElementById('new-player-name');
     if (field) field.focus();
   }
 
-  render();
+  function renameLobby(name) {
+    const clean = String(name || '').trim();
+    ui.lobbyNote = clean ? 'Renamed to ' + clean + '.' : 'Name cleared.';
+    adapter.renameSpace(space.status().code, clean).then(function () {
+      ui.lobbyForm = null;
+      render();
+    }).catch(function (error) {
+      ui.addError = (error && error.message) || 'The lobby could not be renamed.';
+      render();
+    });
+  }
+
+  window.addEventListener('online', function () { if (space) render(); });
+  window.addEventListener('offline', function () { if (space) render(); });
+
+  const remembered = local.getState().lobby;
+  if (remembered && adapter && Space.validCode(Space.normalizeCode(remembered.code))) {
+    enterLobby(Space.normalizeCode(remembered.code), remembered.name);
+  } else {
+    render();
+  }
 })();

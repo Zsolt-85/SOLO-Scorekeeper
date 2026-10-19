@@ -6,8 +6,10 @@
     const rounds = (game && game.rounds) || [];
     const totals = seats.map(function () { return 0; });
     rounds.forEach(function (round) {
-      (round.points || []).forEach(function (points, i) {
-        if (i < totals.length && Number.isFinite(points)) totals[i] += points;
+      const points = round.points || {};
+      seats.forEach(function (seat, i) {
+        const value = points[seat.id];
+        if (Number.isFinite(value)) totals[i] += value;
       });
     });
     return totals;

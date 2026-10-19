@@ -259,3 +259,12 @@ h1, h2, h3 { margin: 0; line-height: 1.15; }
 .rules th { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
 .rules td:last-child, .rules th:last-child { text-align: right; }
 .rules .source { color: var(--muted); font-size: 0.8rem; }
+
+.code-chip {
+  display: inline-block; margin-right: 0.5rem; padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+  color: var(--gold); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem; letter-spacing: 0.12em;
+}
+.presence { color: var(--muted); font-size: 0.8rem; }
+.live { color: var(--muted); font-size: 0.8rem; margin: -0.8rem 0 1rem; }

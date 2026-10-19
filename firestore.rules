@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// SOLO Scorekeeper — shared lobbies.
+//
+// Every lobby is one document tree under spaces/{CODE}, where CODE is the
+// 8-character join code. The code is the only key: anybody who knows a code may
+// read and write that lobby, and no code is discoverable (the spaces collection
+// cannot be listed). Everybody is signed in anonymously, hence the "is someone
+// signed in at all" checks; there is no per-person identity.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /spaces/{code} {
+      // Create a lobby, and read/rename one you already know the code for.
+      allow get, create, update: if request.auth != null;
+
+      // No browsing: finding a lobby must require knowing its code.
+      allow list: if false;
+
+      // A lobby is never deleted.
+      allow delete: if false;
+
+      // Everything inside a known lobby is shared.
+      match /{document=**} {
+        allow read, write: if request.auth != null;
+      }
+    }
+  }
+}

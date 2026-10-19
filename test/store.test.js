@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createStore } = require('../js/store.js');
+const Ranking = require('../js/ranking.js');
 
 function fakeStorage() {
   const data = new Map();
@@ -18,17 +19,31 @@ function seatThree(store) {
   return [a, b, c];
 }
 
+function playedGame(store, points) {
+  seatThree(store);
+  const game = store.startGame();
+  store.recordRound(game.id, points || [1, 2, 3]);
+  return game;
+}
+
 test('a new store is empty and healthy', () => {
   const store = createStore(fakeStorage());
   assert.deepEqual(store.getState(), {
-    version: 1,
+    version: 2,
     selection: [],
     players: [],
-    currentGame: null,
     games: [],
-    settings: { lowerWins: true }
+    settings: { lowerWins: true },
+    lobby: null
   });
   assert.equal(store.isDegraded(), false);
+});
+
+test('a new store has no active or finished games', () => {
+  const store = createStore(fakeStorage());
+  assert.equal(store.getActiveGame(), null);
+  assert.deepEqual(store.activeGames(), []);
+  assert.deepEqual(store.finishedGames(), []);
 });
 
 test('a new store defaults to lowest-wins scoring', () => {
@@ -44,10 +59,10 @@ test('setLowerWins flips the direction and persists it', () => {
   assert.deepEqual(createStore(storage).getSettings(), { lowerWins: false });
 });
 
-test('a stored document with no settings loads with the default', () => {
+test('a stored v2 document with no settings loads with the default', () => {
   const storage = fakeStorage();
-  storage.setItem('noting-more.v1', JSON.stringify({
-    version: 1, selection: [], players: [], currentGame: null, games: []
+  storage.setItem('noting-more.v2', JSON.stringify({
+    version: 2, selection: [], players: [], games: []
   }));
   const store = createStore(storage);
   assert.deepEqual(store.getSettings(), { lowerWins: true });
@@ -108,6 +123,15 @@ test('toggleSeat adds then removes a player', () => {
   assert.deepEqual(store.toggleSeat(maya.id), []);
 });
 
+test('subscribe is told whenever a command changes state', () => {
+  const store = createStore(fakeStorage());
+  let calls = 0;
+  store.subscribe(() => { calls += 1; });
+  store.addPlayer('Maya', '🐱');
+  store.setLowerWins(false);
+  assert.equal(calls, 2);
+});
+
 test('startGame snapshots the seated players and clears the selection', () => {
   const store = createStore(fakeStorage());
   seatThree(store);
@@ -117,6 +141,7 @@ test('startGame snapshots the seated players and clears the selection', () => {
   assert.deepEqual(game.rounds, []);
   assert.equal(game.finishedAt, null);
   assert.deepEqual(store.getState().selection, []);
+  assert.equal(store.getActiveGame().id, game.id);
 });
 
 test('startGame refuses to start with nobody seated', () => {
@@ -124,143 +149,166 @@ test('startGame refuses to start with nobody seated', () => {
   assert.throws(() => store.startGame(), /at least one player/);
 });
 
-test('recordRound stores one integer per seat and undoRound removes the last round', () => {
+test('recordRound keys points by seat and undoRound removes the last round', () => {
   const store = createStore(fakeStorage());
   seatThree(store);
-  store.startGame();
-  store.recordRound([1, 2, 3]);
-  store.recordRound([4, 5, 6]);
-  assert.deepEqual(store.getState().currentGame.rounds.length, 2);
-  store.undoRound();
-  assert.deepEqual(store.getState().currentGame.rounds.map((r) => r.points), [[1, 2, 3]]);
+  const game = store.startGame();
+  store.recordRound(game.id, [1, 2, 3]);
+  store.recordRound(game.id, [4, 5, 6]);
+  const ids = store.getGame(game.id).seats.map((s) => s.id);
+  assert.deepEqual(store.getGame(game.id).rounds.length, 2);
+  assert.deepEqual(store.getGame(game.id).rounds[0].points, { [ids[0]]: 1, [ids[1]]: 2, [ids[2]]: 3 });
+  store.undoRound(game.id);
+  assert.equal(store.getGame(game.id).rounds.length, 1);
+  assert.deepEqual(Ranking.totalsFor(store.getGame(game.id)), [1, 2, 3]);
+});
+
+test('recordRound stamps the round with a time', () => {
+  const store = createStore(fakeStorage());
+  const game = playedGame(store);
+  assert.ok(store.getGame(game.id).rounds[0].at > 0);
 });
 
 test('recordRound treats blanks and garbage as zero', () => {
   const store = createStore(fakeStorage());
   seatThree(store);
-  store.startGame();
-  store.recordRound(['', '  ', 'abc']);
-  assert.deepEqual(store.getState().currentGame.rounds[0].points, [0, 0, 0]);
+  const game = store.startGame();
+  store.recordRound(game.id, ['', '  ', 'abc']);
+  assert.deepEqual(Ranking.totalsFor(store.getGame(game.id)), [0, 0, 0]);
 });
 
 test('recordRound truncates a non-integer and keeps negative points', () => {
   const store = createStore(fakeStorage());
-  seatThree(store);
-  store.startGame();
-  store.recordRound(['3.7', '-2', '4']);
-  assert.deepEqual(store.getState().currentGame.rounds[0].points, [3, -2, 4]);
+  const game = playedGame(store, ['3.7', '-2', '4']);
+  assert.deepEqual(Ranking.totalsFor(store.getGame(game.id)), [3, -2, 4]);
 });
 
 test('recordRound rejects a point count that does not match the seats', () => {
   const store = createStore(fakeStorage());
   seatThree(store);
-  store.startGame();
-  assert.throws(() => store.recordRound([1, 2]), /must match the number of players/);
+  const game = store.startGame();
+  assert.throws(() => store.recordRound(game.id, [1, 2]), /must match the number of players/);
 });
 
 test('recordRound and undoRound refuse when no game is in progress', () => {
   const store = createStore(fakeStorage());
-  assert.throws(() => store.recordRound([1]), /No game in progress/);
-  assert.throws(() => store.undoRound(), /No game in progress/);
+  assert.throws(() => store.recordRound(null, [1]), /No game in progress/);
+  assert.throws(() => store.undoRound(null), /No game in progress/);
 });
 
 test('undoRound refuses when no round has been played', () => {
   const store = createStore(fakeStorage());
   seatThree(store);
-  store.startGame();
-  assert.throws(() => store.undoRound(), /No round to undo/);
+  const game = store.startGame();
+  assert.throws(() => store.undoRound(game.id), /No round to undo/);
 });
 
-test('a player added mid-game joins the roster and is back-filled with zeros', () => {
+test('a player added mid-game joins the roster and counts as zero for old rounds', () => {
   const store = createStore(fakeStorage());
   seatThree(store);
-  store.startGame();
-  store.recordRound([1, 2, 3]);
-  store.recordRound([4, 5, 6]);
-  const guest = store.addPlayerToCurrentGame('Eli', '🐸');
-  const game = store.getState().currentGame;
-  assert.equal(game.seats.length, 4);
-  assert.equal(game.seats[3].name, 'Eli');
-  assert.deepEqual(game.rounds.map((r) => r.points), [[1, 2, 3, 0], [4, 5, 6, 0]]);
+  const game = store.startGame();
+  store.recordRound(game.id, [1, 2, 3]);
+  store.recordRound(game.id, [4, 5, 6]);
+  const guest = store.addPlayerToGame(game.id, 'Eli', '🐸');
+  const saved = store.getGame(game.id);
+  assert.equal(saved.seats.length, 4);
+  assert.equal(saved.seats[3].name, 'Eli');
+  assert.deepEqual(Ranking.totalsFor(saved), [5, 7, 9, 0]);
+  assert.equal(saved.rounds[0].points[saved.seats[3].id], undefined);
   assert.ok(store.getState().players.some((p) => p.id === guest.id));
 });
 
-test('addPlayerToCurrentGame validates the name', () => {
+test('addPlayerToGame validates the name', () => {
   const store = createStore(fakeStorage());
   seatThree(store);
-  store.startGame();
-  assert.throws(() => store.addPlayerToCurrentGame('', '🐸'), /1-20 characters/);
+  const game = store.startGame();
+  assert.throws(() => store.addPlayerToGame(game.id, '', '🐸'), /1-20 characters/);
 });
 
-test('finishGame moves the game to history newest-first with a finish time', () => {
+test('finishGame stamps a finish time and moves the game out of play', () => {
   const store = createStore(fakeStorage());
-  seatThree(store);
-  store.startGame();
-  store.recordRound([1, 2, 3]);
-  const finished = store.finishGame();
+  const game = playedGame(store);
+  const finished = store.finishGame(game.id);
   assert.ok(finished.finishedAt > 0);
-  assert.equal(store.getState().currentGame, null);
-  assert.equal(store.getState().games.length, 1);
-  assert.equal(store.getState().games[0].id, finished.id);
+  assert.deepEqual(store.activeGames(), []);
+  assert.deepEqual(store.finishedGames().map((g) => g.id), [game.id]);
 });
 
 test('finishGame refuses before a round has been played', () => {
   const store = createStore(fakeStorage());
   seatThree(store);
-  store.startGame();
-  assert.throws(() => store.finishGame(), /at least one round/);
+  const game = store.startGame();
+  assert.throws(() => store.finishGame(game.id), /at least one round/);
 });
 
 test('getGame finds a finished game by id', () => {
   const store = createStore(fakeStorage());
-  seatThree(store);
-  store.startGame();
-  store.recordRound([1, 2, 3]);
-  const finished = store.finishGame();
-  assert.equal(store.getGame(finished.id).id, finished.id);
+  const game = playedGame(store);
+  store.finishGame(game.id);
+  assert.equal(store.getGame(game.id).id, game.id);
 });
 
 test('playAgain re-seats the same players with no rounds', () => {
   const store = createStore(fakeStorage());
-  seatThree(store);
-  store.startGame();
-  store.recordRound([1, 2, 3]);
-  const finished = store.finishGame();
-  const next = store.playAgain(finished.id);
+  const game = playedGame(store);
+  store.finishGame(game.id);
+  const next = store.playAgain(game.id);
   assert.deepEqual(next.seats.map((s) => s.name), ['Maya', 'Dana', 'Tobi']);
   assert.deepEqual(next.rounds, []);
-  assert.notEqual(next.id, finished.id);
-  assert.equal(store.getState().games.length, 1, 'history is not modified');
+  assert.notEqual(next.id, game.id);
+  assert.equal(store.finishedGames().length, 1, 'history is not modified');
 });
 
-test('playAgain refuses to overwrite a different game that is in progress', () => {
+test('several games can be in play at once and each keeps its own rounds', () => {
   const store = createStore(fakeStorage());
-  const players = seatThree(store);
-  store.startGame();
-  store.recordRound([1, 2, 3]);
-  const finished = store.finishGame();
+  seatThree(store);
+  const first = store.startGame();
+  store.recordRound(first.id, [1, 2, 3]);
+  const players = store.getState().players;
   players.forEach((p) => store.toggleSeat(p.id));
-  const live = store.startGame();
-  store.recordRound([4, 5, 6]);
-  assert.throws(() => store.playAgain(finished.id), /Finish or leave the game in progress first\./);
-  assert.equal(store.getState().currentGame.id, live.id);
-  assert.deepEqual(store.getState().currentGame.rounds.map((r) => r.points), [[4, 5, 6]]);
+  const second = store.startGame();
+  store.recordRound(second.id, [4, 5, 6]);
+  assert.equal(store.activeGames().length, 2);
+  assert.deepEqual(Ranking.totalsFor(store.getGame(first.id)), [1, 2, 3]);
+  assert.deepEqual(Ranking.totalsFor(store.getGame(second.id)), [4, 5, 6]);
+  assert.equal(store.getActiveGame().id, second.id, 'the newest game is the default');
+});
+
+test('recordRound refuses a finished game', () => {
+  const store = createStore(fakeStorage());
+  const game = playedGame(store);
+  store.finishGame(game.id);
+  assert.throws(() => store.recordRound(game.id, [1, 2, 3]), /already finished/);
+});
+
+test('recordRound refuses an unknown game', () => {
+  const store = createStore(fakeStorage());
+  assert.throws(() => store.recordRound('nope', [1]), /no longer available/);
+});
+
+test('an active game survives a reload', () => {
+  const storage = fakeStorage();
+  const first = createStore(storage);
+  const game = playedGame(first);
+  const second = createStore(storage);
+  assert.equal(second.getActiveGame().id, game.id);
+  assert.deepEqual(Ranking.totalsFor(second.getActiveGame()), [1, 2, 3]);
 });
 
 test('renaming a player does not rewrite a finished game', () => {
   const store = createStore(fakeStorage());
   const [maya] = seatThree(store);
-  store.startGame();
-  store.recordRound([1, 2, 3]);
-  const finished = store.finishGame();
+  const game = store.startGame();
+  store.recordRound(game.id, [1, 2, 3]);
+  store.finishGame(game.id);
   store.renamePlayer(maya.id, 'May');
-  assert.equal(store.getState().games[0].seats[0].name, 'Maya');
+  assert.equal(store.getGame(game.id).seats[0].name, 'Maya');
   assert.equal(store.getState().players[0].name, 'May');
 });
 
 test('a corrupt stored document degrades to an empty state instead of throwing', () => {
   const storage = fakeStorage();
-  storage.setItem('noting-more.v1', '{not json');
+  storage.setItem('noting-more.v2', '{not json');
   const store = createStore(storage);
   assert.deepEqual(store.getState().players, []);
   assert.equal(store.isDegraded(), true);
@@ -268,7 +316,7 @@ test('a corrupt stored document degrades to an empty state instead of throwing',
 
 test('a stored document of the wrong shape degrades to an empty state', () => {
   const storage = fakeStorage();
-  storage.setItem('noting-more.v1', JSON.stringify({ version: 99, players: 'nope' }));
+  storage.setItem('noting-more.v2', JSON.stringify({ version: 99, players: 'nope' }));
   const store = createStore(storage);
   assert.equal(store.isDegraded(), true);
   assert.deepEqual(store.getState().games, []);
@@ -328,11 +376,11 @@ test('updatePlayer rejects an unknown player', () => {
 test('editing a player does not rewrite a finished game', () => {
   const store = createStore(fakeStorage());
   const [maya] = seatThree(store);
-  store.startGame();
-  store.recordRound([1, 2, 3]);
-  store.finishGame();
+  const game = store.startGame();
+  store.recordRound(game.id, [1, 2, 3]);
+  store.finishGame(game.id);
   store.updatePlayer(maya.id, 'May', '🦊');
-  assert.equal(store.getState().games[0].seats[0].emoji, '🐱');
+  assert.equal(store.getGame(game.id).seats[0].emoji, '🐱');
   assert.equal(store.getState().players[0].emoji, '🦊');
 });
 
@@ -362,11 +410,11 @@ test('removePlayer rejects an unknown player', () => {
 test('removing a player does not rewrite a finished game', () => {
   const store = createStore(fakeStorage());
   const [maya] = seatThree(store);
-  store.startGame();
-  store.recordRound([1, 2, 3]);
-  store.finishGame();
+  const game = store.startGame();
+  store.recordRound(game.id, [1, 2, 3]);
+  store.finishGame(game.id);
   store.removePlayer(maya.id);
-  assert.deepEqual(store.getState().games[0].seats.map((s) => s.name), ['Maya', 'Dana', 'Tobi']);
+  assert.deepEqual(store.getGame(game.id).seats.map((s) => s.name), ['Maya', 'Dana', 'Tobi']);
   assert.deepEqual(store.getState().players.map((p) => p.name), ['Dana', 'Tobi']);
 });
 
@@ -376,4 +424,109 @@ test('a removed player stays removed after a reload', () => {
   const maya = first.addPlayer('Maya', '🐱');
   first.removePlayer(maya.id);
   assert.deepEqual(createStore(storage).getState().players, []);
+});
+
+test('deleteGame removes a finished game', () => {
+  const store = createStore(fakeStorage());
+  const game = playedGame(store);
+  store.finishGame(game.id);
+  store.deleteGame(game.id);
+  assert.deepEqual(store.finishedGames(), []);
+});
+
+const LEGACY = {
+  version: 1,
+  selection: ['p1'],
+  players: [{ id: 'p1', name: 'Maya', emoji: '🐱', color: '#f0b429', createdAt: 1 }],
+  currentGame: {
+    id: 'g1',
+    startedAt: 5,
+    finishedAt: null,
+    seats: [
+      { id: 's1', name: 'Maya', emoji: '🐱', color: '#f0b429' },
+      { id: 's2', name: 'Dana', emoji: '🦊', color: '#5bc8af' }
+    ],
+    rounds: [{ id: 'r1', points: [7, 4] }]
+  },
+  games: [{
+    id: 'g0',
+    startedAt: 1,
+    finishedAt: 2,
+    seats: [{ id: 's0', name: 'Dana', emoji: '🦊', color: '#5bc8af' }],
+    rounds: [{ id: 'r0', points: [3] }]
+  }],
+  settings: { lowerWins: false }
+};
+
+test('a v1 document is migrated to v2 on load', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v1', JSON.stringify(LEGACY));
+  const store = createStore(storage);
+  assert.equal(store.isDegraded(), false);
+  assert.equal(store.getState().version, 2);
+  assert.deepEqual(store.getSettings(), { lowerWins: false });
+  assert.deepEqual(store.getState().selection, ['p1']);
+});
+
+test('migration turns the v1 game in progress into an active v2 game', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v1', JSON.stringify(LEGACY));
+  const store = createStore(storage);
+  const active = store.getActiveGame();
+  assert.equal(active.id, 'g1');
+  assert.equal(active.startedAt, 5);
+  assert.deepEqual(Ranking.totalsFor(active), [7, 4]);
+  assert.deepEqual(active.rounds[0].points, { s1: 7, s2: 4 });
+});
+
+test('migration keeps finished games in history', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v1', JSON.stringify(LEGACY));
+  const store = createStore(storage);
+  assert.deepEqual(store.finishedGames().map((g) => g.id), ['g0']);
+  assert.deepEqual(Ranking.totalsFor(store.finishedGames()[0]), [3]);
+});
+
+test('migration writes a v2 document and leaves the v1 document alone', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v1', JSON.stringify(LEGACY));
+  createStore(storage);
+  assert.ok(storage.getItem('noting-more.v2'));
+  assert.ok(storage.getItem('noting-more.v1'));
+});
+
+test('a migrated store reloads from the v2 document without migrating again', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v1', JSON.stringify(LEGACY));
+  createStore(storage);
+  storage.setItem('noting-more.v1', '{broken');
+  const store = createStore(storage);
+  assert.equal(store.isDegraded(), false);
+  assert.equal(store.getActiveGame().id, 'g1');
+});
+
+test('a v1 document with no settings migrates with the default', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v1', JSON.stringify({
+    version: 1, selection: [], players: [], currentGame: null, games: []
+  }));
+  const store = createStore(storage);
+  assert.deepEqual(store.getSettings(), { lowerWins: true });
+  assert.equal(store.isDegraded(), false);
+});
+
+test('a v1 document of the wrong shape degrades to an empty state', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v1', JSON.stringify({ version: 1, players: 'nope' }));
+  const store = createStore(storage);
+  assert.equal(store.isDegraded(), true);
+  assert.deepEqual(store.getState().games, []);
+});
+
+test('the remembered lobby survives a reload', () => {
+  const storage = fakeStorage();
+  const first = createStore(storage);
+  first.setLobby({ code: 'abcd2345', name: 'Kitchen', joinedAt: 9 });
+  const second = createStore(storage);
+  assert.deepEqual(second.getState().lobby, { code: 'ABCD2345', name: 'Kitchen', joinedAt: 9 });
 });

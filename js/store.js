@@ -1,132 +1,106 @@
 (function (global) {
   'use strict';
 
-  const KEY = 'noting-more.v1';
-  const PALETTE = ['#f0b429', '#5bc8af', '#ef7f6b', '#9d8df1', '#6ec1ff', '#7bc950', '#f28ab2', '#c9a227'];
-  const MAX_NAME = 20;
+  const Model = global.Model
+    || (typeof module !== 'undefined' && module.exports ? require('./model.js') : null);
 
-  function uid(prefix) {
-    return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  }
+  const KEY = 'noting-more.v2';
+  const LEGACY_KEY = 'noting-more.v1';
 
-  function emptyState() {
-    return {
-      version: 1,
-      selection: [],
-      players: [],
-      currentGame: null,
-      games: [],
-      settings: { lowerWins: true }
-    };
-  }
-
-  function normalizeSettings(settings) {
-    const lowerWins = settings && typeof settings.lowerWins === 'boolean' ? settings.lowerWins : true;
-    return { lowerWins: lowerWins };
-  }
-
-  function isValidState(value) {
-    if (!value || value.version !== 1) return false;
-    if (!Array.isArray(value.players) || !Array.isArray(value.games)) return false;
-    const game = value.currentGame;
-    if (game === null || game === undefined) return true;
-    return Array.isArray(game.seats) && Array.isArray(game.rounds);
-  }
-
-  function cleanName(name) {
-    return String(name === null || name === undefined ? '' : name).trim();
-  }
-
-  function parsePoints(value) {
-    if (value === '' || value === null || value === undefined) return 0;
-    const n = Number(value);
-    if (!Number.isFinite(n)) return 0;
-    return Math.trunc(n);
-  }
-
-  function createStore(storage) {
+  function createStore(storage, deps) {
+    const model = Model.create(deps || {});
+    const listeners = [];
     let degradedReason = null;
     let state = load();
 
+    function write(doc) {
+      try {
+        storage.setItem(KEY, JSON.stringify(doc));
+        return true;
+      } catch (error) {
+        if (!degradedReason) degradedReason = 'full';
+        return false;
+      }
+    }
+
     function load() {
-      let raw;
+      let raw = null;
       try {
         raw = storage.getItem(KEY);
       } catch (error) {
         degradedReason = 'blocked';
-        return emptyState();
+        return model.empty();
       }
-      if (!raw) return emptyState();
-      try {
-        const parsed = JSON.parse(raw);
-        if (!isValidState(parsed)) {
+
+      if (raw) {
+        try {
+          const stored = model.fromDocument(JSON.parse(raw));
+          if (stored) return stored;
           degradedReason = 'corrupt';
-          return emptyState();
+          return model.empty();
+        } catch (error) {
+          degradedReason = 'corrupt';
+          return model.empty();
         }
-        parsed.selection = Array.isArray(parsed.selection) ? parsed.selection : [];
-        parsed.settings = normalizeSettings(parsed.settings);
-        return parsed;
-      } catch (error) {
-        degradedReason = 'corrupt';
-        return emptyState();
       }
+
+      let legacy = null;
+      try {
+        legacy = storage.getItem(LEGACY_KEY);
+      } catch (error) {
+        legacy = null;
+      }
+      if (legacy) {
+        let migrated = null;
+        try {
+          migrated = model.fromDocument(JSON.parse(legacy));
+        } catch (error) {
+          migrated = null;
+        }
+        if (migrated) {
+          write(migrated);
+          return migrated;
+        }
+        degradedReason = 'corrupt';
+      }
+      return model.empty();
     }
 
     function persist() {
-      try {
-        storage.setItem(KEY, JSON.stringify(state));
-      } catch (error) {
-        if (!degradedReason) degradedReason = 'full';
-      }
+      write(state);
     }
 
-    function findPlayer(id) {
-      return state.players.find(function (player) { return player.id === id; }) || null;
-    }
-
-    function nextColour() {
-      const used = state.players.map(function (player) { return player.color; });
-      const free = PALETTE.filter(function (colour) { return used.indexOf(colour) === -1; });
-      return free[0] || PALETTE[state.players.length % PALETTE.length];
-    }
-
-    function createPlayer(name, emoji) {
-      const clean = cleanName(name);
-      if (!clean || clean.length > MAX_NAME) throw new Error('Name must be 1-20 characters.');
-      const face = String(emoji || '').trim() || '🙂';
-      const duplicate = state.players.some(function (player) {
-        return player.name.toLowerCase() === clean.toLowerCase() && player.emoji === face;
+    function notify() {
+      listeners.forEach(function (listener) {
+        try { listener(state); } catch (error) { /* a bad listener must not break saving */ }
       });
-      if (duplicate) throw new Error('That player is already on your roster.');
-      const player = { id: uid('p'), name: clean, emoji: face, color: nextColour(), createdAt: Date.now() };
-      state.players.push(player);
-      return player;
     }
 
-    function requireGame() {
-      if (!state.currentGame) throw new Error('No game in progress.');
-      return state.currentGame;
+    function apply(change) {
+      const draft = JSON.parse(JSON.stringify(state));
+      const result = change(draft);
+      state = draft;
+      persist();
+      notify();
+      return result;
     }
 
-    function makeSeat(source) {
-      return { id: uid('s'), name: source.name, emoji: source.emoji, color: source.color };
-    }
-
-    function startNewGame(seats) {
-      state.currentGame = {
-        id: uid('g'),
-        startedAt: Date.now(),
-        finishedAt: null,
-        seats: seats,
-        rounds: []
-      };
-      return state.currentGame;
+    function player(id) {
+      return model.findPlayer(state, id);
     }
 
     const api = {
-      PALETTE: PALETTE,
+      PALETTE: Model.PALETTE,
 
       getState: function () { return state; },
+
+      subscribe: function (listener) {
+        listeners.push(listener);
+        return function () {
+          const at = listeners.indexOf(listener);
+          if (at !== -1) listeners.splice(at, 1);
+        };
+      },
 
       isDegraded: function () { return degradedReason !== null; },
 
@@ -135,136 +109,80 @@
       getSettings: function () { return { lowerWins: state.settings.lowerWins }; },
 
       setLowerWins: function (flag) {
-        state.settings.lowerWins = !!flag;
-        persist();
-        return state.settings.lowerWins;
+        return apply(function (draft) { return model.setLowerWins(draft, flag); });
       },
 
       addPlayer: function (name, emoji) {
-        const player = createPlayer(name, emoji);
-        persist();
-        return player;
-      },
-
-      renamePlayer: function (id, name) {
-        const clean = cleanName(name);
-        if (!clean || clean.length > MAX_NAME) throw new Error('Name must be 1-20 characters.');
-        const player = findPlayer(id);
-        if (!player) throw new Error('That player is not on your roster.');
-        player.name = clean;
-        persist();
-        return player;
+        return apply(function (draft) { return model.addPlayer(draft, name, emoji); });
       },
 
       updatePlayer: function (id, name, emoji) {
-        const clean = cleanName(name);
-        if (!clean || clean.length > MAX_NAME) throw new Error('Name must be 1-20 characters.');
-        const player = findPlayer(id);
-        if (!player) throw new Error('That player is not on your roster.');
-        const face = String(emoji || '').trim() || '🙂';
-        const duplicate = state.players.some(function (other) {
-          return other.id !== id
-            && other.name.toLowerCase() === clean.toLowerCase()
-            && other.emoji === face;
-        });
-        if (duplicate) throw new Error('That player is already on your roster.');
-        player.name = clean;
-        player.emoji = face;
-        persist();
-        return player;
+        return apply(function (draft) { return model.updatePlayer(draft, id, name, emoji); });
+      },
+
+      renamePlayer: function (id, name) {
+        const current = player(id);
+        if (!current) throw new Error('That player is not on your roster.');
+        return api.updatePlayer(id, name, current.emoji);
       },
 
       removePlayer: function (id) {
-        const player = findPlayer(id);
-        if (!player) throw new Error('That player is not on your roster.');
-        state.players = state.players.filter(function (other) { return other.id !== id; });
-        const at = state.selection.indexOf(id);
-        if (at !== -1) state.selection.splice(at, 1);
-        persist();
-        return player;
+        return apply(function (draft) { return model.removePlayer(draft, id); });
       },
 
       toggleSeat: function (id) {
-        const at = state.selection.indexOf(id);
-        if (at === -1) state.selection.push(id);
-        else state.selection.splice(at, 1);
-        persist();
-        return state.selection.slice();
+        return apply(function (draft) { return model.toggleSeat(draft, id); });
       },
 
       clearSeats: function () {
-        state.selection = [];
-        persist();
+        return apply(function (draft) { return model.clearSeats(draft); });
       },
 
       startGame: function () {
-        const chosen = state.selection.map(findPlayer).filter(Boolean);
-        if (chosen.length === 0) throw new Error('Pick at least one player first.');
-        const seats = chosen.map(makeSeat);
-        state.selection = [];
-        const game = startNewGame(seats);
-        persist();
-        return game;
+        return apply(function (draft) { return model.startGame(draft); });
       },
 
-      recordRound: function (values) {
-        const game = requireGame();
-        const points = (values || []).map(parsePoints);
-        if (points.length !== game.seats.length) throw new Error('Point count must match the number of players.');
-        game.rounds.push({ id: uid('r'), points: points });
-        persist();
-        return game;
+      addPlayerToGame: function (gameId, name, emoji) {
+        return apply(function (draft) { return model.addPlayerToGame(draft, gameId, name, emoji); });
       },
 
-      undoRound: function () {
-        const game = requireGame();
-        if (game.rounds.length === 0) throw new Error('No round to undo.');
-        game.rounds.pop();
-        persist();
-        return game;
+      recordRound: function (gameId, values) {
+        return apply(function (draft) { return model.recordRound(draft, gameId, values); });
       },
 
-      addPlayerToCurrentGame: function (name, emoji) {
-        const game = requireGame();
-        const player = createPlayer(name, emoji);
-        game.seats.push(makeSeat(player));
-        game.rounds.forEach(function (round) { round.points.push(0); });
-        persist();
-        return player;
+      undoRound: function (gameId) {
+        return apply(function (draft) { return model.undoRound(draft, gameId); });
       },
 
-      finishGame: function () {
-        const game = requireGame();
-        if (game.rounds.length === 0) throw new Error('Play at least one round before ending the game.');
-        game.finishedAt = Date.now();
-        state.games.unshift(game);
-        state.currentGame = null;
-        persist();
-        return game;
+      finishGame: function (gameId) {
+        return apply(function (draft) { return model.finishGame(draft, gameId); });
       },
 
       playAgain: function (gameId) {
-        const source = gameId ? api.getGame(gameId) : state.currentGame;
-        if (!source) throw new Error('That game is no longer available.');
-        if (state.currentGame && state.currentGame.id !== gameId) {
-          throw new Error('Finish or leave the game in progress first.');
-        }
-        const seats = source.seats.map(makeSeat);
-        const game = startNewGame(seats);
-        persist();
-        return game;
+        return apply(function (draft) { return model.playAgain(draft, gameId); });
       },
 
-      getGame: function (id) {
-        if (state.currentGame && state.currentGame.id === id) return state.currentGame;
-        return state.games.find(function (game) { return game.id === id; }) || null;
-      }
+      deleteGame: function (gameId) {
+        return apply(function (draft) { return model.deleteGame(draft, gameId); });
+      },
+
+      setLobby: function (lobby) {
+        return apply(function (draft) { return model.setLobby(draft, lobby); });
+      },
+
+      getActiveGame: function () { return model.activeGames(state)[0] || null; },
+
+      activeGames: function () { return model.activeGames(state); },
+
+      finishedGames: function () { return model.finishedGames(state); },
+
+      getGame: function (id) { return model.findGame(state, id); }
     };
 
     return api;
   }
 
-  const Store = { createStore: createStore };
+  const Store = { createStore: createStore, KEY: KEY, LEGACY_KEY: LEGACY_KEY };
   global.Store = Store;
   if (typeof module !== 'undefined' && module.exports) module.exports = Store;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -2,18 +2,27 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Ranking = require('../js/ranking.js');
 
+function keyed(seats, values) {
+  const points = {};
+  seats.forEach((seat, i) => { points[seat.id] = values[i]; });
+  return points;
+}
+
 function game(roundPoints) {
   const seats = roundPoints[0].map((_, i) => ({
     id: 's' + i, name: 'Player ' + i, emoji: '🙂', color: '#f0b429'
   }));
-  return { seats, rounds: roundPoints.map((points, r) => ({ id: 'r' + r, points })) };
+  return {
+    seats,
+    rounds: roundPoints.map((points, r) => ({ id: 'r' + r, points: keyed(seats, points) }))
+  };
 }
 
 function seatedGame(totals) {
   const seats = totals.map((_, i) => ({
     id: 's' + i, name: 'Player ' + i, emoji: '🙂', color: '#f0b429'
   }));
-  return { seats, rounds: [{ id: 'r0', points: totals.slice() }] };
+  return { seats, rounds: [{ id: 'r0', points: keyed(seats, totals) }] };
 }
 
 test('totalsFor sums every round per seat', () => {
@@ -22,6 +31,14 @@ test('totalsFor sums every round per seat', () => {
 
 test('totalsFor returns zero for a game with no rounds', () => {
   assert.deepEqual(Ranking.totalsFor({ seats: [{ id: 'a' }, { id: 'b' }], rounds: [] }), [0, 0]);
+});
+
+test('totalsFor counts a seat that has no entry in an older round as zero', () => {
+  const game = {
+    seats: [{ id: 'a' }, { id: 'b' }],
+    rounds: [{ id: 'r0', points: { a: 5 } }]
+  };
+  assert.deepEqual(Ranking.totalsFor(game), [5, 0]);
 });
 
 test('totalsFor adds negative points', () => {
