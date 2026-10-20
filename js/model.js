@@ -41,7 +41,9 @@
   }
 
   function convertSeat(seat) {
-    return { id: seat.id, name: seat.name, emoji: seat.emoji, color: seat.color };
+    const out = { id: seat.id, name: seat.name, emoji: seat.emoji, color: seat.color };
+    if (seat.playerId) out.playerId = seat.playerId;
+    return out;
   }
 
   function convertGame(game) {
@@ -53,13 +55,16 @@
         points: convertPoints(round.points, seats)
       };
     });
-    return {
+    const out = {
       id: game.id,
       startedAt: game.startedAt === undefined ? null : game.startedAt,
       finishedAt: game.finishedAt === undefined ? null : game.finishedAt,
       seats: seats,
       rounds: rounds
     };
+    // Only a finished game carries the scoring direction it was played in.
+    if (typeof game.lowerWins === 'boolean') out.lowerWins = game.lowerWins;
+    return out;
   }
 
   function normalizePlayers(players) {
@@ -153,7 +158,13 @@
     }
 
     function makeSeat(source) {
-      return { id: uid('s'), name: source.name, emoji: source.emoji, color: source.color };
+      return {
+        id: uid('s'),
+        playerId: source.playerId || source.id,
+        name: source.name,
+        emoji: source.emoji,
+        color: source.color
+      };
     }
 
     function requireGame(state, id) {
@@ -295,6 +306,9 @@
       const game = requireActive(state, gameId);
       if (game.rounds.length === 0) throw new Error('Play at least one round before ending the game.');
       game.finishedAt = now();
+      // Freeze the direction this game was played in, so flipping the switch later
+      // cannot re-crown it or rewrite the win/loss record.
+      game.lowerWins = state.settings.lowerWins;
       return game;
     }
 

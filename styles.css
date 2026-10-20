@@ -101,6 +101,14 @@ h1, h2, h3 { margin: 0; line-height: 1.15; }
 .st { font-size: 0.75rem; color: var(--muted); }
 .pcard.on .st { color: var(--gold); }
 
+.rec {
+  width: 100%; margin-top: 0.15rem; padding-top: 0.3rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted); font-size: 0.72rem; line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+
 .tick {
   position: absolute; top: 0.45rem; right: 0.45rem;
   width: 21px; height: 21px; border-radius: 50%;
@@ -261,10 +269,14 @@ h1, h2, h3 { margin: 0; line-height: 1.15; }
 .rules .source { color: var(--muted); font-size: 0.8rem; }
 
 .code-chip {
-  display: inline-block; margin-right: 0.5rem; padding: 0.15rem 0.5rem;
+  display: inline-block; margin-right: 0.5rem; padding: 0.3rem 0.6rem;
   border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
   color: var(--gold); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.8rem; letter-spacing: 0.12em;
+  font-size: 0.8rem; letter-spacing: 0.12em; line-height: 1.1; vertical-align: middle;
+  cursor: pointer; -webkit-appearance: none; appearance: none;
 }
+.code-chip:hover, .code-chip:focus-visible { border-color: var(--gold); background: #262b4d; }
 .presence { color: var(--muted); font-size: 0.8rem; }
 .live { color: var(--muted); font-size: 0.8rem; margin: -0.8rem 0 1rem; }
+.live .code-chip { padding: 0.15rem 0.45rem; font-size: 0.75rem; }
+

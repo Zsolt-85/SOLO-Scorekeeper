@@ -12,8 +12,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     match /spaces/{code} {
-      // Create a lobby, and read/rename one you already know the code for.
-      allow get, create, update: if request.auth != null;
+      // Create a lobby only if the code is still free, so nobody can overwrite
+      // a lobby they do not own. Read/rename one you already know the code for.
+      allow get, update: if request.auth != null;
+      allow create: if request.auth != null
+        && !exists(/databases/$(database)/documents/spaces/$(code));
 
       // No browsing: finding a lobby must require knowing its code.
       allow list: if false;

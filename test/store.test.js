@@ -530,3 +530,73 @@ test('the remembered lobby survives a reload', () => {
   const second = createStore(storage);
   assert.deepEqual(second.getState().lobby, { code: 'ABCD2345', name: 'Kitchen', joinedAt: 9 });
 });
+
+test('startGame stamps each seat with the roster player id', () => {
+  const store = createStore(fakeStorage());
+  const players = seatThree(store);
+  const game = store.startGame();
+  assert.deepEqual(game.seats.map((s) => s.playerId), players.map((p) => p.id));
+});
+
+test('a player added mid-game gets their roster id on the new seat', () => {
+  const store = createStore(fakeStorage());
+  seatThree(store);
+  const game = store.startGame();
+  const late = store.addPlayerToGame(game.id, 'Sam', '🐸');
+  assert.equal(store.getGame(game.id).seats[3].playerId, late.id);
+});
+
+test('playAgain seats still point at the same roster players', () => {
+  const store = createStore(fakeStorage());
+  const players = seatThree(store);
+  const game = store.startGame();
+  store.recordRound(game.id, [1, 2, 3]);
+  store.finishGame(game.id);
+  const next = store.playAgain(game.id);
+  assert.deepEqual(next.seats.map((s) => s.playerId), players.map((p) => p.id));
+});
+
+test('seat player ids survive a reload', () => {
+  const storage = fakeStorage();
+  const first = createStore(storage);
+  const players = seatThree(first);
+  const game = first.startGame();
+  const second = createStore(storage);
+  assert.deepEqual(second.getGame(game.id).seats.map((s) => s.playerId), players.map((p) => p.id));
+});
+
+test('finishGame freezes the scoring direction on the game', () => {
+  const store = createStore(fakeStorage());
+  store.setLowerWins(false);
+  const game = playedGame(store);
+  store.finishGame(game.id);
+  assert.equal(store.getGame(game.id).lowerWins, false);
+});
+
+test('an in-progress game has no frozen scoring direction', () => {
+  const store = createStore(fakeStorage());
+  const game = playedGame(store);
+  assert.equal(store.getGame(game.id).lowerWins, undefined);
+});
+
+test('a frozen scoring direction survives a reload and a settings flip', () => {
+  const storage = fakeStorage();
+  const first = createStore(storage);
+  first.setLowerWins(false);
+  const game = playedGame(first);
+  first.finishGame(game.id);
+  first.setLowerWins(true);
+  assert.equal(createStore(storage).getGame(game.id).lowerWins, false);
+});
+
+test('a finished game feeds the winner a win and the others a loss', () => {
+  const store = createStore(fakeStorage());
+  const players = seatThree(store);
+  const game = store.startGame();
+  store.recordRound(game.id, [1, 5, 9]);
+  store.finishGame(game.id);
+  const games = store.finishedGames();
+  assert.deepEqual(Ranking.record(games, players[0], store.getSettings().lowerWins), { wins: 1, losses: 0 });
+  assert.deepEqual(Ranking.record(games, players[1], store.getSettings().lowerWins), { wins: 0, losses: 1 });
+  assert.deepEqual(Ranking.record(games, players[2], store.getSettings().lowerWins), { wins: 0, losses: 1 });
+});

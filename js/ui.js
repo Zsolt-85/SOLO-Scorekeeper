@@ -24,7 +24,7 @@
   const ui = {
     addPanelOpen: false, addEmoji: EMOJI[0], addTarget: 'roster', addEditId: null,
     addError: '', addName: '', bannerDismissed: false, manageMode: false, pendingDelete: null,
-    lobbyForm: null, lobbyName: '', lobbyCode: '', lobbyNote: '',
+    lobbyForm: null, lobbyName: '', lobbyCode: '', lobbyNote: '', busy: null,
     roundGameId: null, roundDraft: {}
   };
 
@@ -121,50 +121,103 @@
     });
   }
 
-  function createLobby(name) {
-    const title = String(name || '').trim();
+  // A short confirmation ("Code copied.") that takes itself away again, without a
+  // full re-render: that would steal the focus from whatever is half-typed.
+  let noteTimer = null;
+  function flashNote(text) {
+    if (noteTimer) { clearTimeout(noteTimer); noteTimer = null; }
+    ui.lobbyNote = text;
+    render();
+    noteTimer = setTimeout(function () {
+      noteTimer = null;
+      if (ui.lobbyNote !== text) return;
+      ui.lobbyNote = '';
+      const note = document.querySelector('.lobby-note');
+      if (note && note.parentNode) note.parentNode.removeChild(note);
+    }, 3000);
+  }
+
+  // One tap: the code is the whole setup, so there is nothing to fill in first.
+  function createLobby() {
+    if (ui.busy) return;
+    ui.busy = 'create';
     ui.lobbyNote = '';
-    freshCode().then(function (code) {
-      return adapter.createSpace(code, title).then(function () {
-        local.setLobby({ code: code, name: title, joinedAt: Date.now() });
-        enterLobby(code, title);
+    ui.addError = '';
+    render();
+    function attempt(left) {
+      freshCode().then(function (code) {
+        return adapter.createSpace(code, '').then(function () {
+          local.setLobby({ code: code, name: '', joinedAt: Date.now() });
+          ui.busy = null;
+          ui.lobbyNote = 'Send the code to the other phone.';
+          enterLobby(code, '');
+        }, function (error) {
+          if (error && error.code === 'already-exists' && left > 1) { attempt(left - 1); return; }
+          throw error;
+        });
+      }).catch(function (error) {
+        ui.busy = null;
+        ui.addError = (error && error.message) || 'The lobby could not be created.';
+        render();
       });
-    }).catch(function (error) {
-      ui.addError = (error && error.message) || 'The lobby could not be created.';
-      render();
-    });
+    }
+    attempt(3);
+  }
+
+  function copyCode() {
+    const code = space.status().code;
+    const done = function () { flashNote('Code copied.'); };
+    const failed = function () { flashNote('Copying is blocked here — type the code in by hand.'); };
+    try {
+      const clip = navigator.clipboard;
+      if (!clip || !clip.writeText) { failed(); return; }
+      clip.writeText(code).then(done, failed);
+    } catch (error) {
+      failed();
+    }
   }
 
   function joinLobby(input) {
+    if (ui.busy) return;
     const code = Space.normalizeCode(input);
     if (!Space.validCode(code)) {
       ui.addError = 'A lobby code is 8 characters, using letters and numbers.';
       render();
       return;
     }
+    ui.busy = 'join';
     ui.addError = '';
+    render();
     adapter.spaceExists(code).then(function (exists) {
+      ui.busy = null;
       if (!exists) {
         ui.addError = 'No lobby found for that code.';
         render();
+        focusById('lobby-code');
         return;
       }
       local.setLobby({ code: code, name: '', joinedAt: Date.now() });
+      ui.lobbyNote = '';
       enterLobby(code, '');
     }).catch(function (error) {
+      ui.busy = null;
       ui.addError = (error && error.message) || 'The lobby could not be reached.';
       render();
+      focusById('lobby-code');
     });
   }
 
   function leaveLobby() {
     if (space) space.leave();
+    if (noteTimer) { clearTimeout(noteTimer); noteTimer = null; }
     space = null;
     backend = local;
     local.setLobby(null);
     ui.lobbyForm = null;
     ui.lobbyName = '';
     ui.lobbyCode = '';
+    ui.lobbyNote = '';
+    ui.busy = null;
     navigate('home');
   }
 
@@ -216,14 +269,23 @@
       : 'Standard scoring · most points wins';
   }
 
+  // "Win 2 · Lose 1" on the card, once there is anything to show.
+  function recordHtml(player) {
+    const record = Ranking.record(backend.finishedGames(), player, lowerWins());
+    if (record.wins + record.losses === 0) return '';
+    return '<span class="rec">Win ' + record.wins + ' &middot; Lose ' + record.losses + '</span>';
+  }
+
   function cardHtml(player, seated) {
     const selected = seated.indexOf(player.id) !== -1;
     const name = escapeHtml(player.name);
+    const record = recordHtml(player);
     const body = '<span class="disc" aria-hidden="true">' + escapeHtml(player.emoji) + '</span>'
       + (selected ? '<span class="tick" aria-hidden="true">' + icon('check', 13) + '</span>' : '')
       + '<span class="nm">' + name + '</span>'
-      + '<span class="st">' + (selected ? 'playing' : (ui.manageMode ? 'not playing' : 'tap to add')) + '</span>';
-    const classes = 'pcard' + (selected ? ' on' : '');
+      + '<span class="st">' + (selected ? 'playing' : (ui.manageMode ? 'not playing' : 'tap to add')) + '</span>'
+      + record;
+    const classes = 'pcard' + (selected ? ' on' : '') + (record ? ' has-record' : '');
 
     if (!ui.manageMode) {
       return '<article class="' + classes + '" style="--pc:' + escapeHtml(player.color) + '">'
@@ -256,11 +318,18 @@
   function lobbyHeader() {
     const status = space.status();
     return '<header class="topbar"><div>'
-      + '<h1 class="wordmark">' + escapeHtml(status.name || 'Shared scorekeeper') + '</h1>'
-      + '<p class="tagline"><span class="code-chip">' + escapeHtml(chunkCode(status.code)) + '</span>'
+      + '<h1 class="wordmark">' + escapeHtml(status.name || 'Shared lobby') + '</h1>'
+      + '<p class="tagline">' + codeChip(status.code)
       + '<span class="presence">' + status.online + ' here</span></p></div>'
       + '<nav class="topbar-links"><a class="btn ghost" href="#/rules">Rules</a>'
       + '<a class="btn ghost" href="#/history">History</a></nav></header>';
+  }
+
+  // The code is the whole invitation, so tapping it copies it ready to send.
+  function codeChip(code) {
+    return '<button type="button" class="code-chip" data-action="copy-code"'
+      + ' aria-label="Copy lobby code ' + escapeHtml(code) + '" title="Copy code">'
+      + escapeHtml(chunkCode(code)) + '</button>';
   }
 
   function playTogetherHtml() {
@@ -268,6 +337,9 @@
       const status = space.status();
       const problem = status.problem
         ? '<p class="error">' + escapeHtml(status.problem) + '</p>' : '';
+      const offline = navigator.onLine === false
+        ? '<p class="error">This phone is offline &mdash; changes stay here until the connection comes back.</p>'
+        : '';
       let html = '<section class="panel"><p class="label">This lobby</p>';
       if (ui.lobbyForm === 'rename') {
         html += '<form id="rename-lobby-form">'
@@ -278,13 +350,14 @@
           + '<button type="button" class="btn ghost" data-action="close-lobby-form">Cancel</button></div>'
           + '</form>';
       } else {
-        html += '<p class="hint">Everyone with the code <strong>' + escapeHtml(chunkCode(status.code))
-          + '</strong> sees and edits this scorekeeper. Scores save to the internet, not just this phone.</p>'
+        html += '<p class="hint">Everyone with the code ' + codeChip(status.code)
+          + ' sees and edits this scorekeeper. Scores save to the internet, not just this phone.</p>'
           + problem
+          + offline
           + '<div class="row"><button type="button" class="btn ghost" data-action="rename-lobby">Rename</button>'
           + '<button type="button" class="btn ghost" data-action="leave-lobby">Leave lobby</button></div>';
       }
-      if (ui.lobbyNote) html += '<p class="hint">' + escapeHtml(ui.lobbyNote) + '</p>';
+      if (ui.lobbyNote) html += '<p class="hint lobby-note" role="status">' + escapeHtml(ui.lobbyNote) + '</p>';
       return html + '</section>';
     }
 
@@ -297,25 +370,23 @@
     let html = '<section class="panel"><p class="label">Play together</p>'
       + '<p class="hint">Share one scorekeeper with another phone: the players, the games and the history.</p>';
 
-    if (ui.lobbyForm === 'create') {
-      html += '<form id="create-lobby-form">'
-        + '<label class="label" for="lobby-name">Name this space (optional)</label>'
-        + '<input id="lobby-name" class="input" maxlength="24" autocomplete="off" placeholder="Kitchen table" value="'
-        + escapeHtml(ui.lobbyName) + '">'
-        + '<div class="row"><button type="submit" class="btn primary">Create lobby</button>'
-        + '<button type="button" class="btn ghost" data-action="close-lobby-form">Cancel</button></div>'
-        + '</form>';
-    } else if (ui.lobbyForm === 'join') {
+    if (ui.lobbyForm === 'join') {
+      const joining = ui.busy === 'join';
       html += '<form id="join-lobby-form">'
         + '<label class="label" for="lobby-code">Lobby code</label>'
         + '<input id="lobby-code" class="input" maxlength="9" autocomplete="off" autocapitalize="characters"'
         + ' spellcheck="false" placeholder="ABCD 2345" value="' + escapeHtml(ui.lobbyCode) + '">'
-        + '<div class="row"><button type="submit" class="btn primary">Join lobby</button>'
+        + '<div class="row"><button type="submit" class="btn primary"' + (joining ? ' disabled aria-busy="true"' : '') + '>'
+        + (joining ? 'Joining&hellip;' : 'Join lobby') + '</button>'
         + '<button type="button" class="btn ghost" data-action="close-lobby-form">Cancel</button></div>'
         + '</form>';
     } else {
-      html += '<div class="row"><button type="button" class="btn primary" data-action="open-create-lobby">Create a lobby</button>'
-        + '<button type="button" class="btn ghost" data-action="open-join-lobby">Enter a code</button></div>';
+      const creating = ui.busy === 'create';
+      html += '<div class="row"><button type="button" class="btn primary" data-action="create-lobby"'
+        + (creating ? ' disabled aria-busy="true"' : '') + '>'
+        + (creating ? 'Creating&hellip;' : 'Create a lobby') + '</button>'
+        + '<button type="button" class="btn ghost" data-action="open-join-lobby">Enter a code</button></div>'
+        + '<p class="hint">A code appears straight away &mdash; send it to the other phone.</p>';
     }
 
     if (ui.lobbyNote) html += '<p class="hint">' + escapeHtml(ui.lobbyNote) + '</p>';
@@ -400,8 +471,13 @@
 
     if (inLobby()) {
       const status = space.status();
-      html += '<p class="live">● Live &middot; ' + escapeHtml(chunkCode(status.code)) + ' &middot; '
+      html += '<p class="live">&#9679; Live &middot; ' + codeChip(status.code) + ' &middot; '
         + status.online + ' here. Everyone with the code sees this game.</p>';
+      // A failed save used to roll back silently here; say it out loud instead.
+      if (status.problem) html += '<p class="error">' + escapeHtml(status.problem) + '</p>';
+      else if (navigator.onLine === false) {
+        html += '<p class="error">This phone is offline &mdash; changes stay here until the connection comes back.</p>';
+      }
     }
 
     html += '<div class="tiles">' + game.seats.map(function (seat, i) {
@@ -432,7 +508,8 @@
   }
 
   function formatDate(timestamp) {
-    return new Date(timestamp).toLocaleDateString(undefined, {
+    const at = Number(timestamp);
+    return new Date(Number.isFinite(at) && at > 0 ? at : Date.now()).toLocaleDateString(undefined, {
       weekday: 'short', day: 'numeric', month: 'short'
     });
   }
@@ -440,7 +517,7 @@
   function renderPodium(gameId) {
     const target = gameId ? backend.getGame(gameId) : backend.finishedGames()[0];
     if (!target) { navigate('home'); return ''; }
-    const ranked = Ranking.rank(target, lowerWins());
+    const ranked = Ranking.rank(target, Ranking.directionFor(target, lowerWins()));
     const highest = ranked.length ? Math.max.apply(null, ranked.map(function (r) { return r.total; })) : 0;
 
     let html = '<header class="topbar"><div><h1 class="wordmark">Final scores</h1>'
@@ -491,7 +568,7 @@
     }
 
     html += '<ul class="games">' + games.map(function (game) {
-      const ranked = Ranking.rank(game, lowerWins());
+      const ranked = Ranking.rank(game, Ranking.directionFor(game, lowerWins()));
       const winner = ranked.filter(function (entry) { return entry.isWinner; })
         .map(function (entry) { return entry.seat.name + ' ' + entry.total; }).join(' & ');
       const others = ranked.map(function (entry) {
@@ -681,9 +758,8 @@
       render();
     }
     else if (action === 'dismiss-banner') { ui.bannerDismissed = true; refreshBanner(); }
-    else if (action === 'open-create-lobby') {
-      ui.lobbyForm = 'create'; ui.addError = ''; render(); focusById('lobby-name');
-    }
+    else if (action === 'create-lobby') createLobby();
+    else if (action === 'copy-code') copyCode();
     else if (action === 'open-join-lobby') {
       ui.lobbyForm = 'join'; ui.addError = ''; render(); focusById('lobby-code');
     }
@@ -705,12 +781,6 @@
   });
 
   document.addEventListener('submit', function (event) {
-    if (event.target.id === 'create-lobby-form') {
-      event.preventDefault();
-      ui.lobbyName = document.getElementById('lobby-name').value;
-      createLobby(ui.lobbyName);
-      return;
-    }
     if (event.target.id === 'join-lobby-form') {
       event.preventDefault();
       ui.lobbyCode = document.getElementById('lobby-code').value;
@@ -746,6 +816,7 @@
     ui.addEditId = null;
     ui.manageMode = false;
     ui.pendingDelete = null;
+    ui.busy = null;
     render();
   });
 
@@ -761,8 +832,11 @@
 
   function renameLobby(name) {
     const clean = String(name || '').trim();
+    const code = space.status().code;
+    const saved = local.getState().lobby;
     ui.lobbyNote = clean ? 'Renamed to ' + clean + '.' : 'Name cleared.';
-    adapter.renameSpace(space.status().code, clean).then(function () {
+    adapter.renameSpace(code, clean).then(function () {
+      local.setLobby({ code: code, name: clean, joinedAt: saved && saved.joinedAt });
       ui.lobbyForm = null;
       render();
     }).catch(function (error) {

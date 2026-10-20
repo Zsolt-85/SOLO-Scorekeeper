@@ -138,9 +138,18 @@
   function createSpace(code, name) {
     return load().then(signedIn).then(function (sdk) {
       const api = sdk.storeApi;
-      return api.setDoc(api.doc(sdk.db, docPath(code)), {
-        name: name || '',
-        createdAt: Date.now()
+      const ref = api.doc(sdk.db, docPath(code));
+      // A transaction so two phones creating at the same instant cannot both
+      // claim one code: the second one gets 'already-exists' and retries.
+      return api.runTransaction(sdk.db, function (transaction) {
+        return transaction.get(ref).then(function (snapshot) {
+          if (snapshot.exists()) {
+            const error = new Error('That code is already taken. Please try again.');
+            error.code = 'already-exists';
+            throw error;
+          }
+          transaction.set(ref, { name: name || '', createdAt: Date.now() });
+        });
       });
     });
   }

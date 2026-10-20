@@ -19,7 +19,7 @@
 
   const CODE_LENGTH = 8;
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const ONLINE_MS = 75000;
+  const ONLINE_MS = 120000;
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -48,6 +48,26 @@
     return true;
   }
 
+  function assembleGame(game, roundSets) {
+    const seats = (game.seats || []).map(function (seat) {
+      const out = { id: seat.id, name: seat.name, emoji: seat.emoji, color: seat.color };
+      if (seat.playerId) out.playerId = seat.playerId;
+      return out;
+    });
+    const out = {
+      id: game.id,
+      startedAt: game.startedAt === undefined ? null : game.startedAt,
+      finishedAt: game.finishedAt === undefined ? null : game.finishedAt,
+      seats: seats,
+      rounds: (roundSets[game.id] || []).map(function (round) {
+        return { id: round.id, at: round.at === undefined ? null : round.at, points: round.points || {} };
+      })
+    };
+    // Only a finished game carries the scoring direction it was played in.
+    if (typeof game.lowerWins === 'boolean') out.lowerWins = game.lowerWins;
+    return out;
+  }
+
   function assemble(docs, lobby) {
     const roundSets = docs.rounds || {};
     return {
@@ -63,17 +83,7 @@
         };
       }),
       games: (docs.games || []).map(function (game) {
-        return {
-          id: game.id,
-          startedAt: game.startedAt === undefined ? null : game.startedAt,
-          finishedAt: game.finishedAt === undefined ? null : game.finishedAt,
-          seats: (game.seats || []).map(function (seat) {
-            return { id: seat.id, name: seat.name, emoji: seat.emoji, color: seat.color };
-          }),
-          rounds: (roundSets[game.id] || []).map(function (round) {
-            return { id: round.id, at: round.at === undefined ? null : round.at, points: round.points || {} };
-          })
-        };
+        return assembleGame(game, roundSets);
       }),
       settings: { lowerWins: !(docs.meta && docs.meta.lowerWins === false) },
       lobby: lobby || null
@@ -89,12 +99,14 @@
   }
 
   function gameDoc(game) {
-    return {
+    const out = {
       id: game.id,
       startedAt: game.startedAt,
       finishedAt: game.finishedAt,
       seats: game.seats
     };
+    if (typeof game.lowerWins === 'boolean') out.lowerWins = game.lowerWins;
+    return out;
   }
 
   function metaDoc(state) {
@@ -105,8 +117,24 @@
     };
   }
 
+  // Compare two documents by what they hold, not by the order their keys happen to
+  // be in: a phone writes a seat as {id, playerId, name}, while the next phone
+  // rebuilds it from Firestore as {id, name, ..., playerId}. Raw JSON would call
+  // those different, and the write would be replayed on top of every snapshot.
+  function canonical(value) {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === 'object') {
+      const out = {};
+      Object.keys(value).sort().forEach(function (key) {
+        out[key] = canonical(value[key]);
+      });
+      return out;
+    }
+    return value;
+  }
+
   function sameDoc(a, b) {
-    return JSON.stringify(a) === JSON.stringify(b);
+    return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
   }
 
   // Has a snapshot caught up with the change we already showed the player?
@@ -126,6 +154,7 @@
       if (parts.length === 2) {
         return game.startedAt === op.data.startedAt
           && game.finishedAt === op.data.finishedAt
+          && game.lowerWins === op.data.lowerWins
           && sameDoc(game.seats, op.data.seats);
       }
       if (parts.length === 4 && parts[2] === 'rounds') {
@@ -160,17 +189,20 @@
       }
       const at = state.games.map(function (game) { return game.id; }).indexOf(op.data.id);
       if (at === -1) {
-        state.games.push({
+        const created = {
           id: op.data.id,
           startedAt: op.data.startedAt,
           finishedAt: op.data.finishedAt,
           seats: op.data.seats,
           rounds: []
-        });
+        };
+        if (typeof op.data.lowerWins === 'boolean') created.lowerWins = op.data.lowerWins;
+        state.games.push(created);
       } else {
         state.games[at].startedAt = op.data.startedAt;
         state.games[at].finishedAt = op.data.finishedAt;
         state.games[at].seats = op.data.seats;
+        if (typeof op.data.lowerWins === 'boolean') state.games[at].lowerWins = op.data.lowerWins;
       }
       return;
     }
@@ -277,7 +309,7 @@
     const code = normalizeCode(options.code);
     const deviceId = options.deviceId;
     const title = options.name || '';
-    const heartbeatMs = options.heartbeatMs === undefined ? 30000 : options.heartbeatMs;
+    const heartbeatMs = options.heartbeatMs === undefined ? 60000 : options.heartbeatMs;
     const listeners = [];
     const ready = [];
 
@@ -346,6 +378,8 @@
       if (ticker) { clearInterval(ticker); ticker = null; }
       if (disconnect) disconnect();
       disconnect = null;
+      listeners.length = 0;
+      ready.length = 0;
       return Promise.resolve(adapter.leave(code, deviceId)).catch(function () { /* leaving is best effort */ });
     }
 

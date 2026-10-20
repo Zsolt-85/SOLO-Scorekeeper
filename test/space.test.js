@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Space = require('../js/space.js');
+const Ranking = require('../js/ranking.js');
 const { create } = require('../js/model.js');
 
 const model = create({ now: () => 1, uid: (p) => p + '1' });
@@ -175,6 +176,75 @@ test('addPlayerToGame writes the player and the updated seats', () => {
   assert.deepEqual(ops[1].data.seats.map((s) => s.name), ['Maya', 'Dana']);
 });
 
+test('assemble keeps the roster player id on a seat', () => {
+  const state = Space.assemble(docs({
+    games: [{
+      id: 'g1',
+      startedAt: 5,
+      finishedAt: null,
+      seats: [{ id: 's1', playerId: 'p1', name: 'Maya', emoji: 'M', color: '#f0b429' }]
+    }],
+    rounds: {}
+  }), null);
+  assert.equal(state.games[0].seats[0].playerId, 'p1');
+});
+
+test('assemble keeps the scoring direction frozen on a finished game', () => {
+  const state = Space.assemble(docs({
+    games: [{ id: 'g1', startedAt: 5, finishedAt: 9, lowerWins: false, seats: [] }],
+    rounds: {}
+  }), null);
+  assert.equal(state.games[0].lowerWins, false);
+});
+
+test('finishGame writes the frozen scoring direction to the game document', () => {
+  const state = Space.assemble(docs({ meta: { lowerWins: false, selection: [] } }), null);
+  const { ops } = Space.opsFor(model, state, 'finishGame', { gameId: 'g1' });
+  assert.equal(ops[0].path, 'games/g1');
+  assert.equal(ops[0].data.lowerWins, false);
+});
+
+test('a lagging snapshot cannot un-finish a game or lose its direction', () => {
+  const adapter = fakeAdapter();
+  const space = Space.create({
+    adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0, now: () => 1
+  });
+  const active = {
+    meta: { lowerWins: false, selection: [] },
+    games: [{
+      id: 'g1',
+      startedAt: 5,
+      finishedAt: null,
+      seats: [{ id: 's1', playerId: 'p1', name: 'Maya', emoji: 'M', color: '#f0b429' }]
+    }],
+    rounds: { g1: [{ id: 'r1', at: 9, points: { s1: 7 } }] }
+  };
+  adapter.push(docs(active));
+  space.finishGame('g1');
+  adapter.push(docs(active));
+  assert.equal(space.getGame('g1').finishedAt, 1, 'still finished');
+  assert.equal(space.getGame('g1').lowerWins, false, 'still lowest-wins');
+  assert.equal(space.getGame('g1').seats[0].playerId, 'p1', 'the player id is still there');
+});
+
+test('a finished lobby game feeds the player record', () => {
+  const adapter = fakeAdapter();
+  const space = Space.create({ adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0 });
+  adapter.push(docs({
+    meta: { lowerWins: true, selection: [] },
+    games: [{
+      id: 'g1',
+      startedAt: 5,
+      finishedAt: 20,
+      lowerWins: true,
+      seats: [{ id: 's1', playerId: 'p1', name: 'Maya', emoji: 'M', color: '#f0b429' }]
+    }],
+    rounds: { g1: [{ id: 'r1', at: 9, points: { s1: 7 } }] }
+  }));
+  const player = space.getState().players[0];
+  assert.deepEqual(Ranking.record(space.finishedGames(), player, true), { wins: 1, losses: 0 });
+});
+
 test('finishGame stamps the finish time on the game document', () => {
   const state = Space.assemble(docs(), null);
   const { ops, value } = Space.opsFor(model, state, 'finishGame', { gameId: 'g1' });
@@ -211,10 +281,11 @@ test('a space rebuilds its state from live documents', () => {
 test('a space counts the phones that have checked in recently', () => {
   const adapter = fakeAdapter();
   const space = Space.create({
-    adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0, now: () => 100000
+    adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0, now: () => 300000
   });
-  adapter.push(docs({ presence: [{ seen: 99000 }, { seen: 10000 }] }));
+  adapter.push(docs({ presence: [{ seen: 299000 }, { seen: 100000 }] }));
   assert.equal(space.status().online, 1);
+  assert.equal(Space.ONLINE_MS, 120000);
 });
 
 test('a space writes a command through the adapter', async () => {
@@ -296,6 +367,32 @@ test('a game started in the lobby survives a lagging snapshot', () => {
   assert.ok(space.getGame(game.id), 'a stale snapshot does not take it away again');
   adapter.push(docs({ games: [{ id: game.id, startedAt: 1, finishedAt: null, seats: [] }], rounds: {} }));
   assert.ok(space.getGame(game.id));
+});
+
+test('our own write stops replaying once the server echoes it back', () => {
+  const adapter = fakeAdapter();
+  const space = Space.create({
+    adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0, now: () => 1, uid: (p) => p + '1'
+  });
+  adapter.push(docs({ meta: { lowerWins: true, selection: ['p1'] }, games: [], rounds: {} }));
+  const game = space.startGame();
+
+  // The server hands back what we wrote, but every phone rebuilds the seats from
+  // the documents, which is not the same key order we wrote them in.
+  const startOps = adapter.calls.commit.map((call) => call.ops)
+    .filter((ops) => ops.some((op) => op.path.indexOf('games/') === 0))[0];
+  const echoedGame = startOps.filter((op) => op.path === 'games/' + game.id)[0].data;
+  const echoedMeta = startOps.filter((op) => op.path === 'meta/state')[0].data;
+  adapter.push(docs({ meta: echoedMeta, games: [echoedGame], rounds: {} }));
+
+  // The other phone ends the game: that must not be undone by our own replay.
+  adapter.push(docs({
+    meta: echoedMeta,
+    games: [Object.assign({}, echoedGame, { finishedAt: 42 })],
+    rounds: {}
+  }));
+  assert.equal(space.getGame(game.id).finishedAt, 42, 'the game another phone finished stays finished');
+  assert.equal(space.finishedGames().length, 1, 'and it counts as finished');
 });
 
 test('a snapshot behind our own round does not undo it', () => {
