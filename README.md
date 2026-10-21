@@ -13,6 +13,7 @@ Open `index.html` in any modern browser. There is no build step and nothing to i
 - **Podium** — animated reveal. Lowest total wins by default (gold bar + crown); flip the scoring mode for UNO.
 - **History** — every finished game, newest first; tap one to reopen its podium. Each row keeps the crown the game was actually played for, so flipping the scoring mode later never rewrites an old result.
 - **Rules** — how SOLO and UNO scoring works, card by card.
+- **Refresh** — the circular-arrow button in the top bar fetches the newest build and reloads. It waits for any lobby write to reach the server first, and warns before throwing away points that are typed but not saved, so no score is lost.
 
 Scores live in the browser's `localStorage` (key `noting-more.v2`) and never leave the device. A `noting-more.v1` document from an older version is upgraded automatically on first load.
 
@@ -42,7 +43,7 @@ The rules allow any signed-in device to read and write one lobby if it knows the
 node --test
 ```
 
-136 tests covering the scoring/ranking maths (including the per-player win/loss record), the model (including the v1 → v2 migration), the storage layer and the shared-lobby logic. Needs Node 18+.
+139 tests covering the scoring/ranking maths (including the per-player win/loss record), the model (including the v1 → v2 migration), the storage layer and the shared-lobby logic. Needs Node 18+.
 
 ## Deploy
 

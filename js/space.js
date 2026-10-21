@@ -347,6 +347,18 @@
       pending.forEach(function (plan) {
         plan.ops.forEach(function (op) { applyOp(model, state, op); });
       });
+      settleIdle();
+    }
+
+    // Resolved once every optimistic write has been echoed back by the server (or
+    // rolled back), so a reload cannot drop a change that is still in flight.
+    const idleWaiters = [];
+
+    function settleIdle() {
+      if (pending.length) return;
+      const waiting = idleWaiters.slice();
+      idleWaiters.length = 0;
+      waiting.forEach(function (finish) { finish(true); });
     }
 
     // Writes are optimistic: the change lands locally at once (so the board never
@@ -399,6 +411,24 @@
       whenReady: function (callback) {
         if (connected) { callback(state); return; }
         ready.push(callback);
+      },
+
+      // Resolves true when nothing is waiting to reach the server, false if the
+      // timeout ran out first. Used before a reload so no write is lost.
+      whenIdle: function (timeoutMs) {
+        if (!pending.length) return Promise.resolve(true);
+        return new Promise(function (resolve) {
+          let done = false;
+          const finish = function (idle) {
+            if (done) return;
+            done = true;
+            const at = idleWaiters.indexOf(finish);
+            if (at !== -1) idleWaiters.splice(at, 1);
+            resolve(idle);
+          };
+          idleWaiters.push(finish);
+          if (timeoutMs > 0) setTimeout(function () { finish(false); }, timeoutMs);
+        });
       },
 
       isDegraded: function () { return false; },

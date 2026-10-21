@@ -18,14 +18,15 @@
     pencil: { stroke: 2, paths: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>' },
     trash: { stroke: 2, paths: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>' },
     check: { stroke: 3, paths: '<path d="M20 6 9 17l-5-5"/>' },
-    plus: { stroke: 2, paths: '<path d="M12 5v14"/><path d="M5 12h14"/>' }
+    plus: { stroke: 2, paths: '<path d="M12 5v14"/><path d="M5 12h14"/>' },
+    refresh: { stroke: 2, paths: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>' }
   };
 
   const ui = {
     addPanelOpen: false, addEmoji: EMOJI[0], addTarget: 'roster', addEditId: null,
     addError: '', addName: '', bannerDismissed: false, manageMode: false, pendingDelete: null,
     lobbyForm: null, lobbyName: '', lobbyCode: '', lobbyNote: '', busy: null,
-    roundGameId: null, roundDraft: {}
+    roundGameId: null, roundDraft: {}, refreshing: false
   };
 
   const views = {
@@ -177,6 +178,42 @@
     }
   }
 
+  const SHELL = [
+    './', 'styles.css', 'js/ranking.js', 'js/model.js', 'js/store.js', 'js/space.js',
+    'js/firebase-config.js', 'js/firebase.js', 'js/reveal.js', 'js/ui.js'
+  ];
+
+  // A normal reload can still be served from the browser's copy for up to ten
+  // minutes (GitHub Pages caches that long). Fetching every shell file with
+  // cache: 'reload' replaces those cached copies first, so the reload afterwards
+  // really does run the newest build.
+  function revalidateShell() {
+    if (!window.fetch) return Promise.resolve();
+    return Promise.all(SHELL.map(function (path) {
+      return fetch(new URL(path, location.href).href, { cache: 'reload', credentials: 'same-origin' })
+        .catch(function () { return null; });
+    }));
+  }
+
+  function refreshApp() {
+    if (ui.refreshing) return;
+    const typed = Object.keys(ui.roundDraft).some(function (id) {
+      return String(ui.roundDraft[id] || '').trim() !== '';
+    });
+    if (typed && !window.confirm('There are points typed for this round that are not saved yet. Refresh anyway?')) return;
+    ui.refreshing = true;
+    document.querySelectorAll('[data-action="refresh-app"]').forEach(function (button) {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+    });
+    // Let any lobby write reach the server before tearing the page down.
+    const idle = space && space.whenIdle ? space.whenIdle(4000) : Promise.resolve(true);
+    idle.catch(function () { return false; })
+      .then(revalidateShell)
+      .catch(function () { return null; })
+      .then(function () { location.reload(); });
+  }
+
   function joinLobby(input) {
     if (ui.busy) return;
     const code = Space.normalizeCode(input);
@@ -312,7 +349,7 @@
     return '<header class="topbar"><div><h1 class="wordmark">SOLO Scorekeeper</h1>'
       + '<p class="tagline">' + escapeHtml(tagline()) + '</p></div>'
       + '<nav class="topbar-links"><a class="btn ghost" href="#/rules">Rules</a>'
-      + '<a class="btn ghost" href="#/history">History</a></nav></header>';
+      + '<a class="btn ghost" href="#/history">History</a>' + refreshBtn() + '</nav></header>';
   }
 
   function lobbyHeader() {
@@ -322,7 +359,7 @@
       + '<p class="tagline">' + codeChip(status.code)
       + '<span class="presence">' + status.online + ' here</span></p></div>'
       + '<nav class="topbar-links"><a class="btn ghost" href="#/rules">Rules</a>'
-      + '<a class="btn ghost" href="#/history">History</a></nav></header>';
+      + '<a class="btn ghost" href="#/history">History</a>' + refreshBtn() + '</nav></header>';
   }
 
   // The code is the whole invitation, so tapping it copies it ready to send.
@@ -330,6 +367,12 @@
     return '<button type="button" class="code-chip" data-action="copy-code"'
       + ' aria-label="Copy lobby code ' + escapeHtml(code) + '" title="Copy code">'
       + escapeHtml(chunkCode(code)) + '</button>';
+  }
+
+  // Fetches the newest build and reloads without touching the scores.
+  function refreshBtn() {
+    return '<button type="button" class="btn ghost icon-btn" data-action="refresh-app"'
+      + ' aria-label="Refresh app" title="Refresh app">' + icon('refresh', 16) + '</button>';
   }
 
   function playTogetherHtml() {
@@ -467,7 +510,8 @@
 
     let html = '<header class="topbar"><div><p class="label">Round ' + (game.rounds.length + 1)
       + '</p><h1 class="wordmark">SOLO Scorekeeper</h1></div>'
-      + '<a class="btn ghost" href="#/home">Leave</a></header>';
+      + '<nav class="topbar-links">' + refreshBtn()
+      + '<a class="btn ghost" href="#/home">Leave</a></nav></header>';
 
     if (inLobby()) {
       const status = space.status();
@@ -522,7 +566,8 @@
 
     let html = '<header class="topbar"><div><h1 class="wordmark">Final scores</h1>'
       + '<p class="tagline">' + escapeHtml(formatDate(target.startedAt)) + '</p></div>'
-      + '<a class="btn ghost" href="#/home">Close</a></header>';
+      + '<nav class="topbar-links">' + refreshBtn()
+      + '<a class="btn ghost" href="#/home">Close</a></nav></header>';
 
     html += '<div class="podium">' + ranked.map(function (entry) {
       const classes = ['bar-col'];
@@ -559,7 +604,8 @@
     const games = backend.finishedGames();
     let html = '<header class="topbar"><div><h1 class="wordmark">History</h1>'
       + '<p class="tagline">' + games.length + ' game' + (games.length === 1 ? '' : 's') + ' played</p></div>'
-      + '<a class="btn ghost" href="#/home">Back</a></header>';
+      + '<nav class="topbar-links">' + refreshBtn()
+      + '<a class="btn ghost" href="#/home">Back</a></nav></header>';
 
     if (games.length === 0) {
       html += '<div class="empty-state"><p>No finished games yet.</p>'
@@ -585,7 +631,8 @@
   function renderRules() {
     let html = '<header class="topbar"><div><h1 class="wordmark">Rules</h1>'
       + '<p class="tagline">How the scores work</p></div>'
-      + '<a class="btn ghost" href="#/home">Back</a></header>';
+      + '<nav class="topbar-links">' + refreshBtn()
+      + '<a class="btn ghost" href="#/home">Back</a></nav></header>';
 
     html += '<section class="panel rules"><h2>How this app scores</h2>'
       + '<p>Each round, every player types the value of the cards still in their hand. The app adds those values up across the game.</p>'
@@ -760,6 +807,7 @@
     else if (action === 'dismiss-banner') { ui.bannerDismissed = true; refreshBanner(); }
     else if (action === 'create-lobby') createLobby();
     else if (action === 'copy-code') copyCode();
+    else if (action === 'refresh-app') refreshApp();
     else if (action === 'open-join-lobby') {
       ui.lobbyForm = 'join'; ui.addError = ''; render(); focusById('lobby-code');
     }

@@ -427,3 +427,33 @@ test('a failed write is rolled back off the board and reported', async () => {
   assert.deepEqual(space.getState().players, []);
   assert.equal(space.status().problem, 'Missing or insufficient permissions.');
 });
+
+test('whenIdle is already done when nothing is in flight', async () => {
+  const adapter = fakeAdapter();
+  const space = Space.create({ adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0 });
+  adapter.push(docs());
+  assert.equal(await space.whenIdle(0), true);
+});
+
+test('whenIdle waits for the server to echo a write back', async () => {
+  const adapter = fakeAdapter();
+  const space = Space.create({ adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0 });
+  adapter.push(docs({ players: [] }));
+  space.addPlayer('Dana', 'D');
+  let idle = null;
+  space.whenIdle(0).then((ok) => { idle = ok; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(idle, null, 'still waiting while the write is in flight');
+
+  adapter.push(docs({ players: [adapter.calls.commit[0].ops[0].data] }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(idle, true);
+});
+
+test('whenIdle gives up after its timeout', async () => {
+  const adapter = fakeAdapter();
+  const space = Space.create({ adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0 });
+  adapter.push(docs({ players: [] }));
+  space.addPlayer('Dana', 'D');
+  assert.equal(await space.whenIdle(20), false);
+});
