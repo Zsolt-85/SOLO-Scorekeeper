@@ -26,7 +26,7 @@
     addPanelOpen: false, addEmoji: EMOJI[0], addTarget: 'roster', addEditId: null,
     addError: '', addName: '', bannerDismissed: false, manageMode: false, pendingDelete: null,
     lobbyForm: null, lobbyName: '', lobbyCode: '', lobbyNote: '', busy: null,
-    roundGameId: null, roundDraft: {}, refreshing: false
+    roundGameId: null, roundDraft: {}, refreshing: false, podiumPlayed: null
   };
 
   const views = {
@@ -290,7 +290,16 @@
     });
     if (route.name === 'home') views.home.innerHTML = renderHome();
     if (route.name === 'game') views.game.innerHTML = renderGame(route.id);
-    if (route.name === 'podium') { views.podium.innerHTML = renderPodium(route.id); Reveal.playPodium(views.podium); }
+    if (route.name === 'podium') {
+      // Snapshot updates (a presence heartbeat, say) must not restart the reveal:
+      // only the first paint of a podium animates, later ones show the result.
+      const key = 'podium/' + (route.id || 'latest');
+      const settled = ui.podiumPlayed === key;
+      views.podium.innerHTML = renderPodium(route.id, settled);
+      if (!settled) { ui.podiumPlayed = key; Reveal.playPodium(views.podium); }
+    } else {
+      ui.podiumPlayed = null;
+    }
     if (route.name === 'history') views.history.innerHTML = renderHistory();
     if (route.name === 'rules') views.rules.innerHTML = renderRules();
     refreshBanner();
@@ -558,7 +567,7 @@
     });
   }
 
-  function renderPodium(gameId) {
+  function renderPodium(gameId, settled) {
     const target = gameId ? backend.getGame(gameId) : backend.finishedGames()[0];
     if (!target) { navigate('home'); return ''; }
     const ranked = Ranking.rank(target, Ranking.directionFor(target, lowerWins()));
@@ -573,10 +582,11 @@
       const classes = ['bar-col'];
       if (entry.isWinner) classes.push('winner');
       if (entry.isLoser) classes.push('loser');
+      if (settled) classes.push('grown');
       const height = Math.max(28, Math.round((entry.total / Math.max(1, highest)) * 220));
       return '<div class="' + classes.join(' ') + '" style="--tile-color:' + escapeHtml(entry.seat.color)
         + ';--bar-height:' + height + 'px">'
-        + '<span class="bar-total" data-total="' + entry.total + '">0</span>'
+        + '<span class="bar-total" data-total="' + entry.total + '">' + (settled ? entry.total : 0) + '</span>'
         + '<div class="bar"><span class="crown">👑</span></div>'
         + '<span class="bar-name">' + escapeHtml(entry.seat.emoji) + ' ' + escapeHtml(entry.seat.name) + '</span>'
         + (entry.isWinner ? '<span class="badge win">Winner</span>' : '')
