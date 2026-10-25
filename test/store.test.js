@@ -94,11 +94,31 @@ test('addPlayer rejects the same name with the same emoji twice', () => {
   assert.throws(() => store.addPlayer('maya', '🐱'), /already on your roster/);
 });
 
-test('addPlayer allows the same name with a different emoji', () => {
+test('addPlayer rejects the same name with a different emoji', () => {
   const store = createStore(fakeStorage());
   store.addPlayer('Maya', '🐱');
-  store.addPlayer('Maya', '🦊');
-  assert.equal(store.getState().players.length, 2);
+  assert.throws(() => store.addPlayer('Maya', '🦊'), /already on your roster/);
+});
+
+test('addPlayer collapses spacing and rejects a spaced duplicate', () => {
+  const store = createStore(fakeStorage());
+  const maya = store.addPlayer('Maya  B', '🐱');
+  assert.equal(maya.name, 'Maya B');
+  assert.throws(() => store.addPlayer(' maya b ', '🦊'), /already on your roster/);
+});
+
+test('updatePlayer rejects another player\'s name even with a different emoji', () => {
+  const store = createStore(fakeStorage());
+  store.addPlayer('Maya', '🐱');
+  const dana = store.addPlayer('Dana', '🦊');
+  assert.throws(() => store.updatePlayer(dana.id, 'maya', '🐻'), /already on your roster/);
+});
+
+test('updatePlayer keeps its own name and may change only the emoji', () => {
+  const store = createStore(fakeStorage());
+  const maya = store.addPlayer('Maya', '🐱');
+  store.updatePlayer(maya.id, 'Maya', '🦊');
+  assert.equal(store.getState().players[0].emoji, '🦊');
 });
 
 test('addPlayer gives each player a distinct palette colour', () => {

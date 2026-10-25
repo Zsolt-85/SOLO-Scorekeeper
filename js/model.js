@@ -6,7 +6,9 @@
   const MAX_NAME = 20;
 
   function cleanName(name) {
-    return String(name === null || name === undefined ? '' : name).trim();
+    return String(name === null || name === undefined ? '' : name)
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   function parsePoints(value) {
@@ -208,7 +210,7 @@
       if (!clean || clean.length > MAX_NAME) throw new Error('Name must be 1-20 characters.');
       const face = String(emoji || '').trim() || '🙂';
       const duplicate = state.players.some(function (player) {
-        return player.name.toLowerCase() === clean.toLowerCase() && player.emoji === face;
+        return player.name.toLowerCase() === clean.toLowerCase();
       });
       if (duplicate) throw new Error('That player is already on your roster.');
       const player = { id: uid('p'), name: clean, emoji: face, color: nextColour(state), createdAt: now() };
@@ -223,9 +225,7 @@
       if (!player) throw new Error('That player is not on your roster.');
       const face = String(emoji || '').trim() || '🙂';
       const duplicate = state.players.some(function (other) {
-        return other.id !== id
-          && other.name.toLowerCase() === clean.toLowerCase()
-          && other.emoji === face;
+        return other.id !== id && other.name.toLowerCase() === clean.toLowerCase();
       });
       if (duplicate) throw new Error('That player is already on your roster.');
       player.name = clean;

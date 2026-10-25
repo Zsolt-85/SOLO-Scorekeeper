@@ -184,16 +184,120 @@
     });
   }
 
+  function configError() {
+    const error = new Error('The leaderboard needs a configured Firebase project.');
+    error.code = 'failed-precondition';
+    return error;
+  }
+
+  function create(options) {
+    const opts = options || {};
+    const config = opts.config === undefined ? CONFIG : opts.config;
+    const isConfigured = !!(config && config.apiKey && config.projectId && config.appId);
+    const getSdk = opts.sdk
+      ? function () { return Promise.resolve(opts.sdk); }
+      : function () { return load().then(signedIn); };
+
+    function putPoolPlayer(key, profile) {
+      if (!isConfigured) return Promise.reject(configError());
+      return getSdk().then(function (sdk) {
+        const api = sdk.storeApi;
+        const ref = api.doc(sdk.db, 'pool/' + key);
+        return api.runTransaction(sdk.db, function (transaction) {
+          return transaction.get(ref).then(function (snapshot) {
+            if (snapshot.exists()) {
+              const error = new Error('That name is already registered.');
+              error.code = 'already-exists';
+              throw error;
+            }
+            transaction.set(ref, {
+              name: profile.name,
+              emoji: profile.emoji || '',
+              createdAt: Date.now()
+            });
+          });
+        }).then(function () { return { ref: 'pool/' + key }; });
+      });
+    }
+
+    function putResult(id, result) {
+      if (!isConfigured) return Promise.reject(configError());
+      return getSdk().then(function (sdk) {
+        const api = sdk.storeApi;
+        const ref = api.doc(sdk.db, 'results/' + id);
+        return api.runTransaction(sdk.db, function (transaction) {
+          return transaction.get(ref).then(function (snapshot) {
+            if (snapshot.exists()) {
+              const error = new Error('That result is already recorded.');
+              error.code = 'already-exists';
+              throw error;
+            }
+            transaction.set(ref, result);
+          });
+        }).then(function () { return { ref: 'results/' + id }; });
+      });
+    }
+
+    function listPool() {
+      if (!isConfigured) return Promise.reject(configError());
+      return getSdk().then(function (sdk) {
+        const api = sdk.storeApi;
+        return api.getDocs(api.collection(sdk.db, 'pool')).then(function (snapshot) {
+          return snapshot.docs.map(function (doc) {
+            return Object.assign({ id: doc.id }, doc.data());
+          });
+        });
+      });
+    }
+
+    function listResults() {
+      if (!isConfigured) return Promise.reject(configError());
+      return getSdk().then(function (sdk) {
+        const api = sdk.storeApi;
+        return api.getDocs(api.collection(sdk.db, 'results')).then(function (snapshot) {
+          return snapshot.docs.map(function (doc) {
+            return Object.assign({ id: doc.id }, doc.data());
+          });
+        });
+      });
+    }
+
+    function deletePoolPlayer(key) {
+      if (!isConfigured) return Promise.reject(configError());
+      return getSdk().then(function (sdk) {
+        const api = sdk.storeApi;
+        return api.deleteDoc(api.doc(sdk.db, 'pool/' + key));
+      });
+    }
+
+    return {
+      configured: function () { return isConfigured; },
+      putPoolPlayer: putPoolPlayer,
+      putResult: putResult,
+      listPool: listPool,
+      listResults: listResults,
+      deletePoolPlayer: deletePoolPlayer
+    };
+  }
+
+  const boardApi = create();
+
   const Firebase = {
     VERSION: VERSION,
     configured: configured,
+    create: create,
     connect: connect,
     commit: commit,
     createSpace: createSpace,
     renameSpace: renameSpace,
     spaceExists: spaceExists,
     heartbeat: heartbeat,
-    leave: leave
+    leave: leave,
+    putPoolPlayer: function (key, profile) { return boardApi.putPoolPlayer(key, profile); },
+    putResult: function (id, result) { return boardApi.putResult(id, result); },
+    listPool: function () { return boardApi.listPool(); },
+    listResults: function () { return boardApi.listResults(); },
+    deletePoolPlayer: function (key) { return boardApi.deletePoolPlayer(key); }
   };
 
   global.Firebase = Firebase;

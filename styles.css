@@ -288,3 +288,38 @@ h1, h2, h3 { margin: 0; line-height: 1.15; }
 .live { color: var(--muted); font-size: 0.8rem; margin: -0.8rem 0 1rem; }
 .live .code-chip { padding: 0.15rem 0.45rem; font-size: 0.75rem; }
 
+.board-panel { display: grid; gap: 1rem; }
+.board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+.board-head h2 { font-size: 1.2rem; }
+.board-meta { color: var(--muted); font-size: 0.85rem; margin: 0; }
+.board-group { display: grid; gap: 0.5rem; }
+.board-group h3 { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.board-note { color: var(--muted); font-size: 0.78rem; margin: -0.2rem 0 0; }
+.board-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.45rem; }
+.board-row {
+  display: grid;
+  grid-template-columns: 1.9rem 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.board-row.top .place { color: var(--gold); font-weight: 700; }
+.board-row .disc { width: 40px; height: 40px; font-size: 1.2rem; }
+.place { text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+.who { display: grid; gap: 0.1rem; min-width: 0; }
+.who .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-record { color: var(--muted); font-size: 0.78rem; }
+.board-pct { font-weight: 700; color: var(--gold); font-variant-numeric: tabular-nums; }
+.board-remove { font-size: 0.78rem; padding: 0.3rem 0.5rem; }
+.board-register { display: grid; gap: 0.6rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.board-register h3 { font-size: 1rem; margin: 0; }
+.board-privacy { color: var(--muted); font-size: 0.75rem; line-height: 1.4; margin: 0; }
+
+@media (max-width: 420px) {
+  .board-row { grid-template-columns: 1.5rem 38px minmax(0, 1fr) auto; gap: 0.5rem; padding: 0.5rem; }
+  .board-row .disc { width: 38px; height: 38px; font-size: 1.1rem; }
+}
+

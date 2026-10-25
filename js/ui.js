@@ -3,6 +3,7 @@
 
   const local = Store.createStore(window.localStorage);
   const adapter = window.Firebase && window.Firebase.configured() ? window.Firebase : null;
+  const sync = Sync.create({ adapter: adapter, storage: window.localStorage });
 
   let space = null;
   let backend = local;
@@ -26,7 +27,9 @@
     addPanelOpen: false, addEmoji: EMOJI[0], addTarget: 'roster', addEditId: null,
     addError: '', addName: '', bannerDismissed: false, manageMode: false, pendingDelete: null,
     lobbyForm: null, lobbyName: '', lobbyCode: '', lobbyNote: '', busy: null,
-    roundGameId: null, roundDraft: {}, refreshing: false, podiumPlayed: null
+    roundGameId: null, roundDraft: {}, refreshing: false, podiumPlayed: null,
+    board: null, boardKey: null, boardName: '', boardEmoji: EMOJI[0], boardBusy: false,
+    boardError: '', boardNotice: '', boardLoadError: ''
   };
 
   const views = {
@@ -34,7 +37,8 @@
     game: document.getElementById('view-game'),
     podium: document.getElementById('view-podium'),
     history: document.getElementById('view-history'),
-    rules: document.getElementById('view-rules')
+    rules: document.getElementById('view-rules'),
+    leaderboard: document.getElementById('view-leaderboard')
   };
   const banner = document.getElementById('banner');
 
@@ -97,6 +101,55 @@
     return String(code || '').replace(/(.{4})(?=.)/, '$1 ');
   }
 
+  // Best-effort: registering a name and freezing a finished game. Failures land in
+  // Sync's outbox, so a finish is never blocked by the network.
+  function publishFinished(mode, players, games) {
+    const origin = mode === 'lobby' && space ? space.status().code : '';
+    (players || []).forEach(function (player) {
+      if (!player || !player.name) return;
+      sync.register(player.name, player.emoji).catch(function () {});
+    });
+    (games || []).forEach(function (game) {
+      const result = Leaderboard.resultFor(game, {
+        mode: mode,
+        origin: origin,
+        lowerWins: game && typeof game.lowerWins === 'boolean' ? game.lowerWins : lowerWins()
+      });
+      if (result) sync.publish(result).catch(function () {});
+    });
+    sync.flush();
+  }
+
+  function backfillSolo() {
+    const state = local.getState();
+    publishFinished('solo', state.players, state.games.filter(function (game) {
+      return game.finishedAt !== null && game.finishedAt !== undefined;
+    }));
+  }
+
+  // A lobby's finished games can arrive one at a time (another phone ends a game),
+  // so publish whenever the connected player or game count changes. The published
+  // and registered sets make repeats free.
+  function watchLobbyBackfill() {
+    let seenGames = -1;
+    let seenPlayers = -1;
+    let seenReady = false;
+    function check() {
+      if (!space) return;
+      const status = space.status();
+      if (!status.connected) return;
+      const state = space.getState();
+      const games = space.finishedGames();
+      if (seenReady && games.length === seenGames && state.players.length === seenPlayers) return;
+      seenReady = true;
+      seenGames = games.length;
+      seenPlayers = state.players.length;
+      publishFinished('lobby', state.players, games);
+    }
+    space.whenReady(check);
+    space.subscribe(check);
+  }
+
   function enterLobby(code, name) {
     if (space) space.leave();
     space = Space.create({
@@ -109,6 +162,7 @@
     space.subscribe(function () {
       if (space) render();
     });
+    watchLobbyBackfill();
     render();
   }
 
@@ -179,8 +233,9 @@
   }
 
   const SHELL = [
-    './', 'styles.css', 'js/ranking.js', 'js/model.js', 'js/store.js', 'js/space.js',
-    'js/firebase-config.js', 'js/firebase.js', 'js/reveal.js', 'js/ui.js'
+    './', 'styles.css', 'js/ranking.js', 'js/library.js', 'js/model.js', 'js/leaderboard.js',
+    'js/store.js', 'js/space.js', 'js/firebase-config.js', 'js/firebase.js',
+    'js/sync.js', 'js/reveal.js', 'js/ui.js'
   ];
 
   // A normal reload can still be served from the browser's copy for up to ten
@@ -302,6 +357,15 @@
     }
     if (route.name === 'history') views.history.innerHTML = renderHistory();
     if (route.name === 'rules') views.rules.innerHTML = renderRules();
+    if (route.name === 'leaderboard') {
+      if (ui.boardKey !== 'leaderboard') {
+        ui.boardKey = 'leaderboard';
+        loadBoard();
+      }
+      views.leaderboard.innerHTML = renderLeaderboard();
+    } else {
+      ui.boardKey = null;
+    }
     refreshBanner();
   }
 
@@ -357,7 +421,8 @@
   function soloHeader() {
     return '<header class="topbar"><div><h1 class="wordmark">SOLO Scorekeeper</h1>'
       + '<p class="tagline">' + escapeHtml(tagline()) + '</p></div>'
-      + '<nav class="topbar-links"><a class="btn ghost" href="#/rules">Rules</a>'
+      + '<nav class="topbar-links"><a class="btn ghost" href="#/leaderboard">Leaderboard</a>'
+      + '<a class="btn ghost" href="#/rules">Rules</a>'
       + '<a class="btn ghost" href="#/history">History</a>' + refreshBtn() + '</nav></header>';
   }
 
@@ -367,7 +432,8 @@
       + '<h1 class="wordmark">' + escapeHtml(status.name || 'Shared lobby') + '</h1>'
       + '<p class="tagline">' + codeChip(status.code)
       + '<span class="presence">' + status.online + ' here</span></p></div>'
-      + '<nav class="topbar-links"><a class="btn ghost" href="#/rules">Rules</a>'
+      + '<nav class="topbar-links"><a class="btn ghost" href="#/leaderboard">Leaderboard</a>'
+      + '<a class="btn ghost" href="#/rules">Rules</a>'
       + '<a class="btn ghost" href="#/history">History</a>' + refreshBtn() + '</nav></header>';
   }
 
@@ -443,6 +509,134 @@
 
     if (ui.lobbyNote) html += '<p class="hint">' + escapeHtml(ui.lobbyNote) + '</p>';
     return html + '</section>';
+  }
+
+  function loadBoard() {
+    const cached = sync.cachedBoard();
+    if (cached) ui.board = cached;
+    sync.fetchBoard().then(function (board) {
+      ui.board = board;
+      ui.boardLoadError = '';
+      if (currentRoute().name === 'leaderboard') render();
+    }, function (error) {
+      ui.boardLoadError = (error && error.message) || 'The board could not be loaded.';
+      if (currentRoute().name === 'leaderboard') render();
+    });
+  }
+
+  function boardGroup(title, list, note) {
+    if (!list.length) return '';
+    return '<div class="board-group"><h3>' + escapeHtml(title) + '</h3>'
+      + (note ? '<p class="board-note">' + escapeHtml(note) + '</p>' : '')
+      + '<ul class="board-list">' + list.map(boardRowHtml).join('') + '</ul></div>';
+  }
+
+  function boardRowHtml(row) {
+    const top = row.place && row.place <= 3 ? ' top' : '';
+    const place = row.place ? String(row.place) : '&ndash;';
+    const record = row.games
+      ? row.games + ' game' + (row.games === 1 ? '' : 's') + ' &middot; '
+        + row.wins + ' W &middot; ' + row.losses + ' L'
+      : 'No games yet';
+    const pct = Leaderboard.winPercent(row);
+    const remove = row.fromPool && row.games === 0
+      ? '<button type="button" class="btn ghost board-remove" data-action="remove-player"'
+        + ' data-key="' + escapeHtml(row.key) + '" data-name="' + escapeHtml(row.name) + '"'
+        + ' aria-label="Remove ' + escapeHtml(row.name) + ' from the leaderboard">Remove</button>'
+      : '';
+    return '<li class="board-row' + top + '">'
+      + '<span class="place">' + place + '</span>'
+      + '<span class="disc" style="--pc:' + escapeHtml(row.color) + '" aria-hidden="true">'
+      + escapeHtml(row.emoji || '') + '</span>'
+      + '<span class="who"><span class="nm">' + escapeHtml(row.name) + '</span>'
+      + '<span class="board-record">' + record + '</span></span>'
+      + (pct === null ? remove : '<span class="board-pct">' + pct + '%</span>')
+      + '</li>';
+  }
+
+  function boardRegisterHtml() {
+    return '<form id="board-register" class="board-register">'
+      + '<h3>Register a player</h3>'
+      + '<label class="label" for="board-name">Name</label>'
+      + '<input id="board-name" class="input" maxlength="20" autocomplete="off" required'
+      + ' value="' + escapeHtml(ui.boardName) + '">'
+      + '<p class="label" style="margin-top:0.9rem">Emoji</p>'
+      + '<div class="emoji-grid" role="group" aria-label="Emoji">'
+      + EMOJI.map(function (face) {
+        return '<button type="button" class="emoji" data-action="pick-board-emoji"'
+          + ' data-emoji="' + face + '" aria-pressed="'
+          + (face === ui.boardEmoji ? 'true' : 'false') + '">' + face + '</button>';
+      }).join('')
+      + '</div>'
+      + (ui.boardError ? '<p class="error">' + escapeHtml(ui.boardError) + '</p>' : '')
+      + (ui.boardNotice ? '<p class="muted">' + escapeHtml(ui.boardNotice) + '</p>' : '')
+      + '<div class="row"><button type="submit" class="btn primary"'
+      + (ui.boardBusy ? ' disabled aria-busy="true"' : '') + '>'
+      + (ui.boardBusy ? 'Registering&hellip;' : 'Register') + '</button></div>'
+      + '</form>';
+  }
+
+  function registerBoardPlayer(name) {
+    if (ui.boardBusy) return;
+    const display = String(name || '').replace(/\s+/g, ' ').trim();
+    ui.boardName = name;
+    if (!display || display.length > 20) {
+      ui.boardError = 'A name is 1-20 characters.';
+      render();
+      return;
+    }
+    ui.boardBusy = true;
+    ui.boardError = '';
+    ui.boardNotice = '';
+    render();
+    sync.register(display, ui.boardEmoji, { queue: false }).then(function () {
+      ui.boardBusy = false;
+      ui.boardName = '';
+      ui.boardEmoji = EMOJI[0];
+      ui.boardNotice = 'Registered. Finish a game to appear with a record.';
+      render();
+      loadBoard();
+    }).catch(function (error) {
+      ui.boardBusy = false;
+      ui.boardError = error && error.code === 'already-exists'
+        ? 'That name is already registered.'
+        : ((error && error.message) || 'The player could not be registered.');
+      render();
+      focusById('board-name');
+    });
+  }
+
+  function renderLeaderboard() {
+    const board = ui.board;
+    const pool = board && Array.isArray(board.pool) ? board.pool : [];
+    const results = board && Array.isArray(board.results) ? board.results : [];
+    const rows = board ? Leaderboard.aggregate(pool, results) : [];
+    const ranked = rows.filter(function (row) { return row.ranked; });
+    const learning = rows.filter(function (row) { return !row.ranked && row.games > 0; });
+    const idle = rows.filter(function (row) { return row.games === 0; });
+    const games = results.length;
+    const pending = sync.pending();
+    return '<header class="topbar"><div><h1 class="wordmark">Leaderboard</h1>'
+      + '<p class="tagline">Every game, every player</p></div>'
+      + '<nav class="topbar-links"><a class="btn ghost" href="#/home">Back</a>'
+      + '<a class="btn ghost" href="#/rules">Rules</a></nav></header>'
+      + '<section class="panel board-panel">'
+      + '<div class="board-head"><h2>Who is on top</h2>'
+      + '<p class="board-meta">' + rows.length + ' player' + (rows.length === 1 ? '' : 's')
+      + ' &middot; ' + games + ' game' + (games === 1 ? '' : 's') + '</p></div>'
+      + (ui.boardLoadError ? '<p class="error">' + escapeHtml(ui.boardLoadError) + '</p>' : '')
+      + (board && board.stale ? '<p class="muted">Showing the last saved board.</p>' : '')
+      + (pending ? '<p class="muted">' + pending + ' change' + (pending === 1 ? '' : 's')
+        + ' waiting to sync.</p>' : '')
+      + (board ? '' : '<p class="muted">Loading the board&hellip;</p>')
+      + (board && !rows.length
+        ? '<p class="muted">No players yet. Register the first one below.</p>' : '')
+      + boardGroup('Ranked', ranked, 'Win % decides the order. Three games to qualify.')
+      + boardGroup('Not ranked yet', learning, 'Three games to qualify.')
+      + boardGroup('No games yet', idle, '')
+      + boardRegisterHtml()
+      + '<p class="board-privacy">Visible to everyone using this app. A name is the player.</p>'
+      + '</section>';
   }
 
   function renderHome() {
@@ -772,6 +966,13 @@
       render();
       focusName();
     }
+    else if (action === 'pick-board-emoji') {
+      const field = document.getElementById('board-name');
+      if (field) ui.boardName = field.value;
+      ui.boardEmoji = trigger.getAttribute('data-emoji');
+      render();
+      focusById('board-name');
+    }
     else if (action === 'toggle-seat') { backend.toggleSeat(trigger.getAttribute('data-id')); render(); }
     else if (action === 'toggle-manage') {
       ui.manageMode = !ui.manageMode;
@@ -802,8 +1003,15 @@
     }
     else if (action === 'open-add-mid') { ui.addPanelOpen = true; ui.addTarget = 'game'; ui.addEditId = null; ui.addName = ''; ui.addEmoji = EMOJI[0]; render(); focusName(); }
     else if (action === 'end-game') {
-      try { navigate('podium/' + backend.finishGame(currentGameId()).id); }
-      catch (error) { ui.addError = error.message; render(); }
+      try {
+        const game = backend.finishGame(currentGameId());
+        if (space) {
+          publishFinished('lobby', space.getState().players, space.finishedGames());
+        } else {
+          publishFinished('solo', local.getState().players, [game]);
+        }
+        navigate('podium/' + game.id);
+      } catch (error) { ui.addError = error.message; render(); }
     }
     else if (action === 'play-again') {
       try { navigate('game/' + backend.playAgain(currentRoute().id || null).id); }
@@ -827,10 +1035,27 @@
       ui.addError = ''; render(); focusById('lobby-name');
     }
     else if (action === 'leave-lobby') leaveLobby();
+    else if (action === 'remove-player') {
+      const key = trigger.getAttribute('data-key');
+      const name = trigger.getAttribute('data-name');
+      if (!key) return;
+      if (!window.confirm('Remove ' + name + ' from the leaderboard?'
+        + ' Their name becomes available again.')) return;
+      sync.remove(key).then(function () {
+        ui.boardNotice = name + ' removed.';
+        ui.boardError = '';
+        render();
+        loadBoard();
+      }).catch(function (error) {
+        ui.boardError = (error && error.message) || 'That player could not be removed.';
+        render();
+      });
+    }
   });
 
   document.addEventListener('input', function (event) {
     if (event.target.id === 'new-player-name') ui.addName = event.target.value;
+    else if (event.target.id === 'board-name') ui.boardName = event.target.value;
     else if (event.target.id === 'lobby-name') ui.lobbyName = event.target.value;
     else if (event.target.id === 'lobby-code') ui.lobbyCode = event.target.value;
     else if (event.target.getAttribute('data-seat')) {
@@ -839,6 +1064,11 @@
   });
 
   document.addEventListener('submit', function (event) {
+    if (event.target.id === 'board-register') {
+      event.preventDefault();
+      registerBoardPlayer(document.getElementById('board-name').value);
+      return;
+    }
     if (event.target.id === 'join-lobby-form') {
       event.preventDefault();
       ui.lobbyCode = document.getElementById('lobby-code').value;
@@ -875,6 +1105,13 @@
     ui.manageMode = false;
     ui.pendingDelete = null;
     ui.busy = null;
+    ui.boardKey = null;
+    ui.boardError = '';
+    ui.boardNotice = '';
+    ui.boardLoadError = '';
+    ui.boardBusy = false;
+    ui.boardName = '';
+    ui.boardEmoji = EMOJI[0];
     render();
   });
 
@@ -903,8 +1140,15 @@
     });
   }
 
-  window.addEventListener('online', function () { if (space) render(); });
+  window.addEventListener('online', function () {
+    sync.flush().then(function () {
+      if (currentRoute().name === 'leaderboard') render();
+    });
+    if (space) render();
+  });
   window.addEventListener('offline', function () { if (space) render(); });
+
+  backfillSolo();
 
   const remembered = local.getState().lobby;
   if (remembered && adapter && Space.validCode(Space.normalizeCode(remembered.code))) {

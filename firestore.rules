@@ -1,12 +1,20 @@
 rules_version = '2';
 
-// SOLO Scorekeeper — shared lobbies.
+// SOLO Scorekeeper — shared lobbies and the global leaderboard.
 //
 // Every lobby is one document tree under spaces/{CODE}, where CODE is the
 // 8-character join code. The code is the only key: anybody who knows a code may
 // read and write that lobby, and no code is discoverable (the spaces collection
 // cannot be listed). Everybody is signed in anonymously, hence the "is someone
 // signed in at all" checks; there is no per-person identity.
+//
+// The leaderboard is two public collections:
+//   pool/{key}      one document per player name; the id is the normalised name,
+//                   so a name can be claimed exactly once (creation fails if it
+//                   exists) and nobody can rename someone else's doc.
+//   results/{id}    one immutable document per finished game. Readable by
+//                   everyone, created once, never edited or deleted.
+// There is deliberately no profile data here: a name and an emoji, nothing else.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -28,6 +36,23 @@ service cloud.firestore {
       match /{document=**} {
         allow read, write: if request.auth != null;
       }
+    }
+
+    match /pool/{key} {
+      allow read: if true;
+      // Claim a free name; the document id is the name, so this is what makes
+      // names unique. A known id can never be written again.
+      allow create: if request.auth != null
+        && !exists(/databases/$(database)/documents/pool/$(key));
+      // Removing a player frees the name again.
+      allow delete: if request.auth != null;
+      allow update: if false;
+    }
+
+    match /results/{id} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
     }
   }
 }
