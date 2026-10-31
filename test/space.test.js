@@ -17,7 +17,12 @@ function docs(overrides) {
       seats: [{ id: 's1', name: 'Maya', emoji: 'M', color: '#f0b429' }]
     }],
     rounds: { g1: [{ id: 'r1', at: 9, points: { s1: 7 } }] },
-    meta: { lowerWins: true, selection: [] },
+    meta: {
+      game: 'solo',
+      rules: { winner: 'lowest', end: { type: 'manual' } },
+      lowerWins: true,
+      selection: []
+    },
     presence: []
   }, overrides);
 }
@@ -67,11 +72,14 @@ test('normalizeCode uppercases and strips everything else', () => {
 
 test('assemble turns lobby documents into a v2 state', () => {
   const state = Space.assemble(docs(), { code: 'ABCD2345', name: 'Kitchen', joinedAt: null });
-  assert.equal(state.version, 2);
-  assert.deepEqual(state.settings, { lowerWins: true });
+  assert.equal(state.version, 3);
+  assert.equal(state.activeType, 'solo');
+  assert.deepEqual(state.library.map((g) => g.id), ['solo']);
+  assert.deepEqual(state.library[0].rules, { winner: 'lowest', end: { type: 'manual' } });
+  assert.equal(Object.prototype.hasOwnProperty.call(state, 'settings'), false);
   assert.deepEqual(state.selection, []);
   assert.deepEqual(state.players.map((p) => p.name), ['Maya']);
-  assert.deepEqual(state.lobby, { code: 'ABCD2345', name: 'Kitchen', joinedAt: null });
+  assert.deepEqual(state.lobby, { code: 'ABCD2345', name: 'Kitchen', joinedAt: null, typeId: 'solo' });
 });
 
 test('assemble folds each game together with its own rounds', () => {
@@ -89,8 +97,8 @@ test('assemble defaults a missing game in progress to active', () => {
 });
 
 test('assemble keeps the shared scoring direction', () => {
-  assert.deepEqual(Space.assemble(docs({ meta: { lowerWins: false } }), null).settings, { lowerWins: false });
-  assert.deepEqual(Space.assemble(docs({ meta: null }), null).settings, { lowerWins: true });
+  assert.equal(Space.assemble(docs({ meta: { lowerWins: false } }), null).activeType, 'uno');
+  assert.equal(Space.assemble(docs({ meta: null }), null).activeType, 'solo');
 });
 
 test('assemble tolerates an empty lobby', () => {
@@ -231,7 +239,12 @@ test('a finished lobby game feeds the player record', () => {
   const adapter = fakeAdapter();
   const space = Space.create({ adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0 });
   adapter.push(docs({
-    meta: { lowerWins: true, selection: [] },
+    meta: {
+      game: 'solo',
+      rules: { winner: 'lowest', end: { type: 'manual' } },
+      lowerWins: true,
+      selection: []
+    },
     games: [{
       id: 'g1',
       startedAt: 5,
@@ -253,12 +266,6 @@ test('finishGame stamps the finish time on the game document', () => {
   assert.equal(ops[0].data.finishedAt, value.finishedAt);
 });
 
-test('setLowerWins writes the shared scoring direction', () => {
-  const state = Space.assemble(docs(), null);
-  const { ops } = Space.opsFor(model, state, 'setLowerWins', { lowerWins: false });
-  assert.equal(ops[0].data.lowerWins, false);
-});
-
 test('an unknown command is refused', () => {
   const state = Space.assemble(docs(), null);
   assert.throws(() => Space.opsFor(model, state, 'setFire', {}), /Unknown lobby command/);
@@ -269,12 +276,14 @@ test('a space rebuilds its state from live documents', () => {
   const space = Space.create({ adapter, code: 'abcd2345', deviceId: 'd1', heartbeatMs: 0 });
   adapter.push(docs({ meta: { lowerWins: false, selection: ['p1'] } }));
   const state = space.getState();
-  assert.equal(state.version, 2);
-  assert.deepEqual(state.settings, { lowerWins: false });
+  assert.equal(state.version, 3);
+  assert.equal(state.activeType, 'uno');
+  assert.deepEqual(state.library[0].rules, { winner: 'highest', end: { type: 'manual' } });
   assert.deepEqual(state.selection, ['p1']);
   assert.equal(space.getActiveGame().id, 'g1');
   assert.deepEqual(space.status(), {
-    code: 'ABCD2345', name: 'Kitchen', online: 0, connected: true, closed: false, problem: null
+    code: 'ABCD2345', name: 'Kitchen', online: 0, connected: true, closed: false, problem: null,
+    game: 'uno', rules: { winner: 'highest', end: { type: 'manual' } }, tableReady: true
   });
 });
 
@@ -403,7 +412,12 @@ test('a snapshot behind our own round does not undo it', () => {
   adapter.push(docs({ meta: { lowerWins: true, selection: ['p1'] }, games: [], rounds: {} }));
   const game = space.startGame();
   space.recordRound(game.id, ['7']);
-  adapter.push(docs({ meta: { lowerWins: true, selection: [] }, games: [], rounds: {} }));
+  adapter.push(docs({ meta: {
+      game: 'solo',
+      rules: { winner: 'lowest', end: { type: 'manual' } },
+      lowerWins: true,
+      selection: []
+    }, games: [], rounds: {} }));
   assert.equal(space.getGame(game.id).rounds.length, 1, 'the round survives the snapshot');
   assert.deepEqual(space.getGame(game.id).rounds[0].points, { s1: 7 });
 });
@@ -457,3 +471,123 @@ test('whenIdle gives up after its timeout', async () => {
   space.addPlayer('Dana', 'D');
   assert.equal(await space.whenIdle(20), false);
 });
+test('assemble binds a new table to UNO and its frozen rules', () => {
+  const state = Space.assemble(docs({
+    meta: {
+      game: 'uno',
+      rules: { winner: 'highest', end: { type: 'limit', limit: 500 } },
+      lowerWins: false,
+      selection: []
+    }
+  }), null);
+  assert.equal(state.version, 3);
+  assert.equal(state.activeType, 'uno');
+  assert.equal(state.library[0].id, 'uno');
+  assert.equal(state.library[0].name, 'UNO');
+  assert.deepEqual(state.library[0].rules, { winner: 'highest', end: { type: 'limit', limit: 500 } });
+});
+
+test('an old table derives its game from lowerWins and uses manual rules', () => {
+  const state = Space.assemble(docs({ meta: { lowerWins: false, selection: [] } }), null);
+  assert.equal(state.activeType, 'uno');
+  assert.deepEqual(state.library[0].rules, { winner: 'highest', end: { type: 'manual' } });
+});
+
+test('an old finished game keeps its own direction under the table type', () => {
+  const state = Space.assemble(docs({
+    meta: { game: 'solo', rules: { winner: 'lowest', end: { type: 'manual' } }, selection: [] },
+    games: [{ id: 'g1', startedAt: 5, finishedAt: 9, lowerWins: false, seats: [] }],
+    rounds: {}
+  }), null);
+  assert.equal(state.games[0].lowerWins, false);
+  assert.equal(state.games[0].typeId, 'solo');
+});
+
+test('startGame writes the table game and rules into the game document', () => {
+  const state = Space.assemble(docs({
+    meta: {
+      game: 'uno',
+      rules: { winner: 'highest', end: { type: 'limit', limit: 500 } },
+      lowerWins: false,
+      selection: ['p1']
+    }
+  }), null);
+  const { ops, value } = Space.opsFor(model, state, 'startGame', {});
+  const game = ops.find((op) => op.path.indexOf('games/') === 0);
+  const meta = ops.find((op) => op.path === 'meta/state');
+  assert.equal(value.typeId, 'uno');
+  assert.equal(value.typeName, 'UNO');
+  assert.deepEqual(value.rules, { winner: 'highest', end: { type: 'limit', limit: 500 } });
+  assert.equal(game.data.typeId, 'uno');
+  assert.equal(game.data.typeName, 'UNO');
+  assert.deepEqual(game.data.rules, { winner: 'highest', end: { type: 'limit', limit: 500 } });
+  assert.deepEqual(meta.data.rules, { winner: 'highest', end: { type: 'limit', limit: 500 } });
+  assert.equal(meta.data.game, 'uno');
+});
+
+test('a seat change preserves the table game and rules', () => {
+  const state = Space.assemble(docs({
+    meta: {
+      game: 'uno',
+      rules: { winner: 'highest', end: { type: 'limit', limit: 500 } },
+      lowerWins: false,
+      selection: []
+    }
+  }), null);
+  const { ops } = Space.opsFor(model, state, 'toggleSeat', { id: 'p1' });
+  assert.equal(ops[0].data.game, 'uno');
+  assert.deepEqual(ops[0].data.rules, { winner: 'highest', end: { type: 'limit', limit: 500 } });
+  assert.equal(ops[0].data.lowerWins, false);
+});
+
+test('playAgain at a table uses the table frozen rules, not a local edit', () => {
+  const state = Space.assemble(docs({
+    meta: {
+      game: 'uno',
+      rules: { winner: 'highest', end: { type: 'limit', limit: 300 } },
+      lowerWins: false,
+      selection: []
+    },
+    games: [{
+      id: 'g1', startedAt: 5, finishedAt: 9,
+      typeId: 'uno', typeName: 'UNO',
+      rules: { winner: 'highest', end: { type: 'limit', limit: 300 } },
+      lowerWins: false,
+      seats: [{ id: 's1', playerId: 'p1', name: 'Maya', emoji: 'M', color: '#f0b429' }]
+    }],
+    rounds: {}
+  }), null);
+  const { value } = Space.opsFor(model, state, 'playAgain', { gameId: 'g1' });
+  assert.deepEqual(value.rules, { winner: 'highest', end: { type: 'limit', limit: 300 } });
+});
+
+test('status exposes the table game, rules and readiness', () => {
+  const adapter = fakeAdapter();
+  const space = Space.create({ adapter, code: 'ABCD2345', deviceId: 'd1', heartbeatMs: 0 });
+  assert.equal(space.status().tableReady, false);
+  adapter.push(docs({
+    meta: {
+      game: 'uno',
+      rules: { winner: 'highest', end: { type: 'limit', limit: 500 } },
+      selection: []
+    }
+  }));
+  const status = space.status();
+  assert.equal(status.tableReady, true);
+  assert.equal(status.game, 'uno');
+  assert.deepEqual(status.rules, { winner: 'highest', end: { type: 'limit', limit: 500 } });
+});
+
+test('initTable writes the game and rules into a fresh table', () => {
+  const state = Space.assemble(docs({ meta: null }), null, {
+    id: 'uno', name: 'UNO', emoji: 'dYZ', colour: '#ef7f6b', pattern: 'arcs',
+    builtin: true, archived: false,
+    rules: { winner: 'highest', end: { type: 'limit', limit: 500 } },
+    createdAt: 0, updatedAt: 0
+  });
+  const { ops } = Space.opsFor(model, state, 'initTable', {});
+  assert.equal(ops[0].path, 'meta/state');
+  assert.equal(ops[0].data.game, 'uno');
+  assert.deepEqual(ops[0].data.rules, { winner: 'highest', end: { type: 'limit', limit: 500 } });
+});
+

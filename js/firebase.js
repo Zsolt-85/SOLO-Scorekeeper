@@ -213,6 +213,7 @@
             transaction.set(ref, {
               name: profile.name,
               emoji: profile.emoji || '',
+              game: profile.game || 'solo',
               createdAt: Date.now()
             });
           });

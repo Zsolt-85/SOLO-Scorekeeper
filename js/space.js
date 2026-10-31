@@ -17,6 +17,9 @@
   const Model = global.Model
     || (typeof module !== 'undefined' && module.exports ? require('./model.js') : null);
 
+  const Library = global.Library
+    || (typeof module !== 'undefined' && module.exports ? require('./library.js') : null);
+
   const CODE_LENGTH = 8;
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const ONLINE_MS = 120000;
@@ -48,30 +51,77 @@
     return true;
   }
 
-  function assembleGame(game, roundSets) {
+  function validRules(rules, fallback) {
+    try {
+      return Library.validateRules(rules);
+    } catch (error) {
+      return { winner: fallback.winner, end: JSON.parse(JSON.stringify(fallback.end)) };
+    }
+  }
+
+  function tableType(meta, fallback) {
+    const base = fallback && fallback.id ? fallback : Library.find(Library.seed(), 'solo');
+    const id = meta && typeof meta.game === 'string' && meta.game
+      ? meta.game
+      : (meta && meta.lowerWins === false ? 'uno' : (fallback && fallback.id) || 'solo');
+    const builtin = Library.find(Library.seed(), id) || base;
+    const fallbackRules = meta && !meta.rules && typeof meta.lowerWins === 'boolean'
+      ? { winner: meta.lowerWins ? 'lowest' : 'highest', end: { type: 'manual' } }
+      : builtin.rules;
+    const rules = meta && meta.rules
+      ? validRules(meta.rules, fallbackRules)
+      : fallbackRules;
+    return {
+      id: id,
+      name: builtin.name,
+      emoji: builtin.emoji,
+      colour: builtin.colour,
+      pattern: builtin.pattern,
+      builtin: true,
+      archived: false,
+      rules: rules,
+      createdAt: builtin.createdAt,
+      updatedAt: builtin.updatedAt
+    };
+  }
+
+  function gameRules(game, fallback) {
+    try {
+      return Library.validateRules(game.rules);
+    } catch (error) {
+      return validRules(null, fallback.rules);
+    }
+  }
+
+  function assembleGame(game, roundSets, type) {
     const seats = (game.seats || []).map(function (seat) {
       const out = { id: seat.id, name: seat.name, emoji: seat.emoji, color: seat.color };
       if (seat.playerId) out.playerId = seat.playerId;
       return out;
     });
-    const out = {
+    const rules = gameRules(game, type);
+    return {
       id: game.id,
       startedAt: game.startedAt === undefined ? null : game.startedAt,
       finishedAt: game.finishedAt === undefined ? null : game.finishedAt,
+      typeId: game.typeId || type.id,
+      typeName: game.typeName || type.name,
+      rules: rules,
+      lowerWins: typeof game.lowerWins === 'boolean' ? game.lowerWins : rules.winner === 'lowest',
       seats: seats,
       rounds: (roundSets[game.id] || []).map(function (round) {
         return { id: round.id, at: round.at === undefined ? null : round.at, points: round.points || {} };
       })
     };
-    // Only a finished game carries the scoring direction it was played in.
-    if (typeof game.lowerWins === 'boolean') out.lowerWins = game.lowerWins;
-    return out;
   }
 
-  function assemble(docs, lobby) {
+  function assemble(docs, lobby, fallbackType) {
+    const type = tableType(docs.meta, fallbackType);
     const roundSets = docs.rounds || {};
     return {
       version: Model.VERSION,
+      library: [type],
+      activeType: type.id,
       selection: docs.meta && Array.isArray(docs.meta.selection) ? docs.meta.selection.slice() : [],
       players: (docs.players || []).map(function (player) {
         return {
@@ -83,10 +133,9 @@
         };
       }),
       games: (docs.games || []).map(function (game) {
-        return assembleGame(game, roundSets);
+        return assembleGame(game, roundSets, type);
       }),
-      settings: { lowerWins: !(docs.meta && docs.meta.lowerWins === false) },
-      lobby: lobby || null
+      lobby: lobby ? Object.assign({}, lobby, { typeId: type.id }) : null
     };
   }
 
@@ -99,19 +148,26 @@
   }
 
   function gameDoc(game) {
-    const out = {
+    return {
       id: game.id,
       startedAt: game.startedAt,
       finishedAt: game.finishedAt,
+      typeId: game.typeId,
+      typeName: game.typeName,
+      rules: game.rules,
+      lowerWins: game.lowerWins,
       seats: game.seats
     };
-    if (typeof game.lowerWins === 'boolean') out.lowerWins = game.lowerWins;
-    return out;
   }
 
   function metaDoc(state) {
+    const type = state.library.filter(function (one) {
+      return one.id === state.activeType;
+    })[0] || state.library[0];
     return {
-      lowerWins: state.settings.lowerWins,
+      game: type.id,
+      rules: type.rules,
+      lowerWins: type.rules.winner === 'lowest',
       selection: state.selection.slice(),
       updatedAt: Date.now()
     };
@@ -154,7 +210,10 @@
       if (parts.length === 2) {
         return game.startedAt === op.data.startedAt
           && game.finishedAt === op.data.finishedAt
+          && game.typeId === op.data.typeId
+          && game.typeName === op.data.typeName
           && game.lowerWins === op.data.lowerWins
+          && sameDoc(game.rules, op.data.rules)
           && sameDoc(game.seats, op.data.seats);
       }
       if (parts.length === 4 && parts[2] === 'rounds') {
@@ -164,7 +223,12 @@
       return false;
     }
     if (op.path === 'meta/state') {
-      return state.settings.lowerWins === op.data.lowerWins && sameDoc(state.selection, op.data.selection);
+      const type = state.library.filter(function (one) {
+        return one.id === state.activeType;
+      })[0] || state.library[0];
+      return state.activeType === op.data.game
+        && sameDoc(type.rules, op.data.rules)
+        && sameDoc(state.selection, op.data.selection);
     }
     return true;
   }
@@ -193,16 +257,22 @@
           id: op.data.id,
           startedAt: op.data.startedAt,
           finishedAt: op.data.finishedAt,
+          typeId: op.data.typeId,
+          typeName: op.data.typeName,
+          rules: op.data.rules,
+          lowerWins: op.data.lowerWins,
           seats: op.data.seats,
           rounds: []
         };
-        if (typeof op.data.lowerWins === 'boolean') created.lowerWins = op.data.lowerWins;
         state.games.push(created);
       } else {
         state.games[at].startedAt = op.data.startedAt;
         state.games[at].finishedAt = op.data.finishedAt;
+        state.games[at].typeId = op.data.typeId;
+        state.games[at].typeName = op.data.typeName;
+        state.games[at].rules = op.data.rules;
+        state.games[at].lowerWins = op.data.lowerWins;
         state.games[at].seats = op.data.seats;
-        if (typeof op.data.lowerWins === 'boolean') state.games[at].lowerWins = op.data.lowerWins;
       }
       return;
     }
@@ -221,8 +291,9 @@
       return;
     }
     if (op.path === 'meta/state') {
-      state.settings.lowerWins = op.data.lowerWins;
-      state.selection = op.data.selection.slice();
+      state.library[0] = tableType(op.data, state.library[0]);
+      state.activeType = state.library[0].id;
+      state.selection = Array.isArray(op.data.selection) ? op.data.selection.slice() : [];
     }
   }
 
@@ -258,9 +329,21 @@
         model.clearSeats(draft);
         return { ops: [put('meta/state', metaDoc(draft))], value: [] };
       }
-      case 'setLowerWins': {
-        const flag = model.setLowerWins(draft, input.lowerWins);
-        return { ops: [put('meta/state', metaDoc(draft))], value: flag };
+      case 'setActiveType': {
+        draft.activeType = input.id || draft.activeType;
+        return { ops: [put('meta/state', metaDoc(draft))], value: draft.activeType };
+      }
+      case 'updateType':
+      case 'archiveType':
+      case 'resetType':
+      case 'restoreType': {
+        return { ops: [], value: null };
+      }
+      case 'addType': {
+        return { ops: [put('meta/state', metaDoc(draft))], value: draft.activeType };
+      }
+      case 'initTable': {
+        return { ops: [put('meta/state', metaDoc(draft))], value: draft.activeType };
       }
       case 'startGame': {
         const game = model.startGame(draft);
@@ -314,7 +397,7 @@
     const ready = [];
 
     let docs = { space: null, players: [], games: [], rounds: {}, meta: null, presence: [] };
-    let state = assemble(docs, { code: code, name: title, joinedAt: null });
+    let state = assemble(docs, { code: code, name: title, joinedAt: null }, options.type);
     let pending = [];
     let connected = false;
     let closed = false;
@@ -340,7 +423,11 @@
     // Rebuild the board from the last snapshot, then paint our own writes back on
     // top for as long as the snapshot has not caught up with them yet.
     function rebuild() {
-      state = assemble(docs, { code: code, name: (docs.space && docs.space.name) || title, joinedAt: null });
+      state = assemble(docs, {
+        code: code,
+        name: (docs.space && docs.space.name) || title,
+        joinedAt: null
+      }, options.type);
       pending = pending.filter(function (plan) {
         return !plan.ops.every(function (op) { return reflectsOp(model, state, op); });
       });
@@ -436,17 +523,42 @@
       degradedReason: function () { return null; },
 
       status: function () {
+        const meta = docs.meta || {};
+        const tableReady = !!(meta.game || meta.rules || typeof meta.lowerWins === 'boolean');
         return {
           code: code,
           name: (docs.space && docs.space.name) || title,
           online: online(),
           connected: connected,
           closed: closed,
-          problem: failure
+          problem: failure,
+          game: state.activeType,
+          rules: state.library[0] ? state.library[0].rules : null,
+          tableReady: tableReady
         };
       },
 
-      getSettings: function () { return { lowerWins: state.settings.lowerWins }; },
+      updateType: function (input) {
+        return run('updateType', input || {});
+      },
+      archiveType: function () { return Promise.resolve(); },
+      resetType: function () { return Promise.resolve(); },
+      restoreType: function () { return Promise.resolve(); },
+      gamesForType: function () { return []; },
+
+      getLibrary: function () { return state.library; },
+
+      getType: function (id) {
+        return state.library.filter(function (type) { return type.id === id; })[0] || null;
+      },
+
+      setActiveType: function (id) {
+        return run('setActiveType', { id: id });
+      },
+
+      getActiveType: function () {
+        return model.currentType ? model.currentType(state) : state.activeType;
+      },
 
       getActiveGame: function () { return model.activeGames(state)[0] || null; },
 
@@ -458,9 +570,11 @@
 
       // The same surface as the local store, so the view layer never has to care
       // which one it is talking to.
-      setLowerWins: function (flag) {
-        return run('setLowerWins', { lowerWins: flag });
+      addType: function (input) {
+        return run('addType', input);
       },
+
+      initTable: function () { return run('initTable', {}); },
 
       addPlayer: function (name, emoji) {
         return run('addPlayer', { name: name, emoji: emoji });

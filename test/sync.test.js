@@ -72,7 +72,7 @@ test('register writes a new profile once and remembers the key', async () => {
   await sync.register('Maya', 'cat');
   await sync.register('maya', 'fox');
   assert.equal(count(adapter.calls, 'pool'), 1);
-  assert.deepEqual(adapter.calls[0][2], { name: 'Maya', emoji: 'cat' });
+  assert.deepEqual(adapter.calls[0][2], { name: 'Maya', emoji: 'cat', game: 'solo' });
   assert.deepEqual(await sync.register('Maya', 'cat'), { key: 'p_maya', created: false });
 });
 
@@ -99,7 +99,7 @@ test('register queues while offline and flush sends it when the connection retur
   await sync.flush();
   assert.equal(sync.pending(), 0);
   assert.equal(count(adapter.calls, 'pool'), 1);
-  assert.deepEqual(adapter.calls[0][2], { name: 'Maya', emoji: 'cat' });
+  assert.deepEqual(adapter.calls[0][2], { name: 'Maya', emoji: 'cat', game: 'solo' });
 });
 
 test('register with queue false refuses while offline', async () => {
@@ -246,3 +246,38 @@ test('remove refuses while offline', async () => {
   const sync = Sync.create({ adapter: adapter, storage: fakeStorage() });
   await assert.rejects(() => sync.remove('p_maya'), (error) => error.code === 'offline');
 });
+
+
+test('register carries the game it was registered from', async () => {
+  const adapter = fakeAdapter();
+  const sync = Sync.create({ adapter: adapter, storage: fakeStorage() });
+  await sync.register('Maya', 'cat', { game: 'uno' });
+  assert.deepEqual(adapter.calls[0][2], { name: 'Maya', emoji: 'cat', game: 'uno' });
+});
+
+test('an old queued pool op is normalised to SOLO', async () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.outbox.v1', JSON.stringify([
+    { kind: 'pool', id: 'p_maya', data: { name: 'Maya', emoji: 'cat' } }
+  ]));
+  const adapter = fakeAdapter();
+  const sync = Sync.create({ adapter: adapter, storage: storage });
+  await sync.flush();
+  assert.deepEqual(adapter.calls[0][2], { name: 'Maya', emoji: 'cat', game: 'solo' });
+});
+
+test('an old queued result op gains a game and gameName', async () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.outbox.v1', JSON.stringify([
+    {
+      kind: 'result', id: 'r1',
+      data: { id: 'r1', at: 1, mode: 'solo', lowerWins: false, players: [] }
+    }
+  ]));
+  const adapter = fakeAdapter();
+  const sync = Sync.create({ adapter: adapter, storage: storage });
+  await sync.flush();
+  assert.equal(adapter.calls[0][2].game, 'uno');
+  assert.equal(adapter.calls[0][2].gameName, 'UNO');
+});
+

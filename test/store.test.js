@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createStore } = require('../js/store.js');
+const Library = require('../js/library.js');
 const Ranking = require('../js/ranking.js');
 
 function fakeStorage() {
@@ -26,16 +27,19 @@ function playedGame(store, points) {
   return game;
 }
 
-test('a new store is empty and healthy', () => {
+test('a new store is a v3 library state', () => {
   const store = createStore(fakeStorage());
-  assert.deepEqual(store.getState(), {
-    version: 2,
-    selection: [],
-    players: [],
-    games: [],
-    settings: { lowerWins: true },
-    lobby: null
-  });
+  const state = store.getState();
+  assert.equal(state.version, 3);
+  assert.equal(state.activeType, 'solo');
+  assert.deepEqual(state.library.map((g) => g.id), ['solo', 'uno']);
+  assert.deepEqual(state.library[0].rules, { winner: 'lowest', end: { type: 'manual' } });
+  assert.deepEqual(state.library[1].rules, { winner: 'highest', end: { type: 'limit', limit: 500 } });
+  assert.deepEqual(state.selection, []);
+  assert.deepEqual(state.players, []);
+  assert.deepEqual(state.games, []);
+  assert.equal(state.lobby, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(state, 'settings'), false);
   assert.equal(store.isDegraded(), false);
 });
 
@@ -46,26 +50,57 @@ test('a new store has no active or finished games', () => {
   assert.deepEqual(store.finishedGames(), []);
 });
 
-test('a new store defaults to lowest-wins scoring', () => {
+test('a new store starts on SOLO', () => {
   const store = createStore(fakeStorage());
-  assert.deepEqual(store.getSettings(), { lowerWins: true });
+  assert.equal(store.getActiveType().id, 'solo');
+  assert.equal(store.getType('uno').name, 'UNO');
 });
 
-test('setLowerWins flips the direction and persists it', () => {
+test('setActiveType changes the active game and persists it', () => {
   const storage = fakeStorage();
   const store = createStore(storage);
-  store.setLowerWins(false);
-  assert.deepEqual(store.getSettings(), { lowerWins: false });
-  assert.deepEqual(createStore(storage).getSettings(), { lowerWins: false });
+  store.setActiveType('uno');
+  assert.equal(store.getActiveType().id, 'uno');
+  assert.equal(createStore(storage).getActiveType().id, 'uno');
 });
 
-test('a stored v2 document with no settings loads with the default', () => {
+test('addType makes the new custom game active and persists it', () => {
+  const storage = fakeStorage();
+  const store = createStore(storage);
+  const type = store.addType({
+    name: 'Rummy', emoji: '🃏', colour: '#5bc8af', pattern: 'stripes',
+    rules: { winner: 'lowest', end: { type: 'limit', limit: 100 } }
+  });
+  assert.equal(type.id, 't2');
+  assert.equal(store.getActiveType().id, 't2');
+  assert.equal(createStore(storage).getType('t2').name, 'Rummy');
+});
+
+test('updateType, archiveType, restoreType and resetType persist', () => {
+  const storage = fakeStorage();
+  const store = createStore(storage);
+  store.updateType('solo', { name: 'Solo Night' });
+  assert.equal(createStore(storage).getType('solo').name, 'Solo Night');
+  store.resetType('solo');
+  assert.equal(store.getType('solo').name, 'SOLO');
+  const custom = store.addType({
+    name: 'Rummy', emoji: '🃏', rules: { winner: 'lowest', end: { type: 'manual' } }
+  });
+  store.archiveType(custom.id);
+  assert.equal(store.getActiveType().id, 'solo');
+  assert.equal(createStore(storage).getType(custom.id).archived, true);
+  store.restoreType(custom.id);
+  assert.equal(store.getType(custom.id).archived, false);
+});
+
+test('a stored v2 document with no settings loads with v3 default', () => {
   const storage = fakeStorage();
   storage.setItem('noting-more.v2', JSON.stringify({
     version: 2, selection: [], players: [], games: []
   }));
   const store = createStore(storage);
-  assert.deepEqual(store.getSettings(), { lowerWins: true });
+  assert.equal(store.getState().version, 3);
+  assert.equal(store.getState().activeType, 'solo');
   assert.equal(store.isDegraded(), false);
 });
 
@@ -148,7 +183,7 @@ test('subscribe is told whenever a command changes state', () => {
   let calls = 0;
   store.subscribe(() => { calls += 1; });
   store.addPlayer('Maya', '🐱');
-  store.setLowerWins(false);
+  store.updateType('solo', { name: 'Solo Night' });
   assert.equal(calls, 2);
 });
 
@@ -160,6 +195,10 @@ test('startGame snapshots the seated players and clears the selection', () => {
   assert.deepEqual(game.seats.map((s) => s.name), ['Maya', 'Dana', 'Tobi']);
   assert.deepEqual(game.rounds, []);
   assert.equal(game.finishedAt, null);
+  assert.equal(game.typeId, 'solo');
+  assert.equal(game.typeName, 'SOLO');
+  assert.deepEqual(game.rules, { winner: 'lowest', end: { type: 'manual' } });
+  assert.equal(game.lowerWins, true);
   assert.deepEqual(store.getState().selection, []);
   assert.equal(store.getActiveGame().id, game.id);
 });
@@ -326,20 +365,30 @@ test('renaming a player does not rewrite a finished game', () => {
   assert.equal(store.getState().players[0].name, 'May');
 });
 
-test('a corrupt stored document degrades to an empty state instead of throwing', () => {
+test('a corrupt v3 document with no fallback remains corrupt and empty', () => {
   const storage = fakeStorage();
-  storage.setItem('noting-more.v2', '{not json');
+  storage.setItem('noting-more.v3', '{not json');
   const store = createStore(storage);
-  assert.deepEqual(store.getState().players, []);
+  assert.deepEqual(store.getState().games, []);
+  assert.equal(store.degradedReason(), 'corrupt');
   assert.equal(store.isDegraded(), true);
 });
 
-test('a stored document of the wrong shape degrades to an empty state', () => {
+test('a stored v3 document of the wrong shape degrades to an empty state', () => {
   const storage = fakeStorage();
-  storage.setItem('noting-more.v2', JSON.stringify({ version: 99, players: 'nope' }));
+  storage.setItem('noting-more.v3', JSON.stringify({ version: 99, players: 'nope' }));
   const store = createStore(storage);
   assert.equal(store.isDegraded(), true);
   assert.deepEqual(store.getState().games, []);
+});
+
+test('a corrupt v2 with a valid v1 migrates v1', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v2', '{not json');
+  storage.setItem('noting-more.v1', JSON.stringify({ version: 1, selection: [], players: [], currentGame: null, games: [] }));
+  const store = createStore(storage);
+  assert.equal(store.getState().version, 3);
+  assert.equal(store.isDegraded(), false);
 });
 
 test('a storage that throws on read degrades but stays usable', () => {
@@ -483,12 +532,12 @@ test('a v1 document is migrated to v2 on load', () => {
   storage.setItem('noting-more.v1', JSON.stringify(LEGACY));
   const store = createStore(storage);
   assert.equal(store.isDegraded(), false);
-  assert.equal(store.getState().version, 2);
-  assert.deepEqual(store.getSettings(), { lowerWins: false });
+  assert.equal(store.getState().version, 3);
+  assert.equal(store.getState().activeType, 'uno');
   assert.deepEqual(store.getState().selection, ['p1']);
 });
 
-test('migration turns the v1 game in progress into an active v2 game', () => {
+test('migration turns the v1 game in progress into an active v3 game', () => {
   const storage = fakeStorage();
   storage.setItem('noting-more.v1', JSON.stringify(LEGACY));
   const store = createStore(storage);
@@ -507,15 +556,15 @@ test('migration keeps finished games in history', () => {
   assert.deepEqual(Ranking.totalsFor(store.finishedGames()[0]), [3]);
 });
 
-test('migration writes a v2 document and leaves the v1 document alone', () => {
+test('migration writes a v3 document and leaves the v1 document alone', () => {
   const storage = fakeStorage();
   storage.setItem('noting-more.v1', JSON.stringify(LEGACY));
   createStore(storage);
-  assert.ok(storage.getItem('noting-more.v2'));
+  assert.ok(storage.getItem('noting-more.v3'));
   assert.ok(storage.getItem('noting-more.v1'));
 });
 
-test('a migrated store reloads from the v2 document without migrating again', () => {
+test('a migrated store reloads from the v3 document without migrating again', () => {
   const storage = fakeStorage();
   storage.setItem('noting-more.v1', JSON.stringify(LEGACY));
   createStore(storage);
@@ -531,7 +580,8 @@ test('a v1 document with no settings migrates with the default', () => {
     version: 1, selection: [], players: [], currentGame: null, games: []
   }));
   const store = createStore(storage);
-  assert.deepEqual(store.getSettings(), { lowerWins: true });
+  assert.equal(store.getState().version, 3);
+  assert.equal(store.getState().activeType, 'solo');
   assert.equal(store.isDegraded(), false);
 });
 
@@ -543,12 +593,47 @@ test('a v1 document of the wrong shape degrades to an empty state', () => {
   assert.deepEqual(store.getState().games, []);
 });
 
+test('a v2 document migrates to v3 on load', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v2', JSON.stringify({
+    version: 2,
+    settings: { lowerWins: false },
+    selection: [],
+    players: [],
+    games: [{
+      id: 'g1', startedAt: 1, finishedAt: 2, lowerWins: true,
+      seats: [], rounds: []
+    }],
+    lobby: { code: 'ABCD2345', name: '', joinedAt: 1 }
+  }));
+  const store = createStore(storage);
+  const state = store.getState();
+  assert.equal(state.version, 3);
+  assert.equal(state.activeType, 'uno');
+  assert.equal(state.games[0].typeId, 'solo');
+  assert.deepEqual(state.games[0].rules, { winner: 'lowest', end: { type: 'manual' } });
+  assert.equal(JSON.parse(storage.getItem('noting-more.v3')).version, 3);
+  assert.ok(storage.getItem('noting-more.v2'));
+});
+
+test('a corrupt v3 document falls back to a valid v2 document', () => {
+  const storage = fakeStorage();
+  storage.setItem('noting-more.v3', '{not json');
+  storage.setItem('noting-more.v2', JSON.stringify({
+    version: 2, settings: { lowerWins: true }, selection: [], players: [], games: []
+  }));
+  const store = createStore(storage);
+  assert.equal(store.getState().version, 3);
+  assert.equal(store.getState().activeType, 'solo');
+  assert.equal(store.isDegraded(), false);
+});
+
 test('the remembered lobby survives a reload', () => {
   const storage = fakeStorage();
   const first = createStore(storage);
   first.setLobby({ code: 'abcd2345', name: 'Kitchen', joinedAt: 9 });
   const second = createStore(storage);
-  assert.deepEqual(second.getState().lobby, { code: 'ABCD2345', name: 'Kitchen', joinedAt: 9 });
+  assert.deepEqual(second.getState().lobby, { code: 'ABCD2345', name: 'Kitchen', joinedAt: 9, typeId: null });
 });
 
 test('startGame stamps each seat with the roster player id', () => {
@@ -585,28 +670,35 @@ test('seat player ids survive a reload', () => {
   assert.deepEqual(second.getGame(game.id).seats.map((s) => s.playerId), players.map((p) => p.id));
 });
 
-test('finishGame freezes the scoring direction on the game', () => {
+test('finishGame freezes the rules on the game', () => {
   const store = createStore(fakeStorage());
-  store.setLowerWins(false);
   const game = playedGame(store);
   store.finishGame(game.id);
-  assert.equal(store.getGame(game.id).lowerWins, false);
+  assert.deepEqual(store.getGame(game.id).rules, { winner: 'lowest', end: { type: 'manual' } });
+  assert.equal(store.getGame(game.id).lowerWins, true);
 });
 
-test('an in-progress game has no frozen scoring direction', () => {
+test('an in-progress game carries the frozen rules it started with', () => {
   const store = createStore(fakeStorage());
-  const game = playedGame(store);
-  assert.equal(store.getGame(game.id).lowerWins, undefined);
+  seatThree(store);
+  const game = store.startGame();
+  assert.deepEqual(game.rules, { winner: 'lowest', end: { type: 'manual' } });
+  assert.equal(game.lowerWins, true);
 });
 
-test('a frozen scoring direction survives a reload and a settings flip', () => {
+test('frozen rules survive a reload and a type edit', () => {
   const storage = fakeStorage();
-  const first = createStore(storage);
-  first.setLowerWins(false);
-  const game = playedGame(first);
-  first.finishGame(game.id);
-  first.setLowerWins(true);
-  assert.equal(createStore(storage).getGame(game.id).lowerWins, false);
+  const store = createStore(storage);
+  seatThree(store);
+  const game = store.startGame();
+  store.recordRound(game.id, [1, 2, 3]);
+  store.finishGame(game.id);
+  store.updateType('solo', {
+    rules: { winner: 'highest', end: { type: 'limit', limit: 10 } }
+  });
+  const reloaded = createStore(storage).getGame(game.id);
+  assert.equal(reloaded.lowerWins, true);
+  assert.deepEqual(reloaded.rules, { winner: 'lowest', end: { type: 'manual' } });
 });
 
 test('a finished game feeds the winner a win and the others a loss', () => {
@@ -616,7 +708,7 @@ test('a finished game feeds the winner a win and the others a loss', () => {
   store.recordRound(game.id, [1, 5, 9]);
   store.finishGame(game.id);
   const games = store.finishedGames();
-  assert.deepEqual(Ranking.record(games, players[0], store.getSettings().lowerWins), { wins: 1, losses: 0 });
-  assert.deepEqual(Ranking.record(games, players[1], store.getSettings().lowerWins), { wins: 0, losses: 1 });
-  assert.deepEqual(Ranking.record(games, players[2], store.getSettings().lowerWins), { wins: 0, losses: 1 });
+  assert.deepEqual(Ranking.record(games, players[0], true), { wins: 1, losses: 0 });
+  assert.deepEqual(Ranking.record(games, players[1], true), { wins: 0, losses: 1 });
+  assert.deepEqual(Ranking.record(games, players[2], true), { wins: 0, losses: 1 });
 });

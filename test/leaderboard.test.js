@@ -184,3 +184,199 @@ test('rankRows puts ranked rows first and shares a place only on equal games and
   assert.deepEqual(rows.map((row) => row.place), [1, 1, 3, 4, null, null]);
   assert.deepEqual(rows.map((row) => row.ranked), [true, true, true, true, false, false]);
 });
+
+
+test('resultFor freezes the match game id and name', () => {
+  const game = {
+    id: 'g1', finishedAt: 10,
+    typeId: 'uno', typeName: 'UNO Night',
+    rules: { winner: 'highest', end: { type: 'limit', limit: 500 } },
+    seats: [{ id: 's1', name: 'Maya', emoji: 'M' }],
+    rounds: [{ id: 'r0', points: { s1: 5 } }]
+  };
+  const result = Leaderboard.resultFor(game, { mode: 'solo' });
+  assert.equal(result.game, 'uno');
+  assert.equal(result.gameName, 'UNO Night');
+  assert.equal(result.lowerWins, false);
+});
+
+test('resultFor derives a game for an old match', () => {
+  const game = {
+    id: 'g1', finishedAt: 10, lowerWins: false,
+    seats: [{ id: 's1', name: 'Maya', emoji: 'M' }],
+    rounds: [{ id: 'r0', points: { s1: 5 } }]
+  };
+  const result = Leaderboard.resultFor(game, { mode: 'solo' });
+  assert.equal(result.game, 'uno');
+  assert.equal(result.gameName, 'UNO');
+});
+
+test('legacy results map by lowerWins', () => {
+  assert.equal(Leaderboard.gameOf({ lowerWins: false }), 'uno');
+  assert.equal(Leaderboard.gameOf({ lowerWins: true }), 'solo');
+  assert.equal(Leaderboard.gameOf({}), 'solo');
+  assert.equal(Leaderboard.gameNameOf({ lowerWins: false }), 'UNO');
+  assert.equal(Leaderboard.gameNameOf({}), 'SOLO');
+});
+
+test('aggregate counts only the requested game', () => {
+  const pool = [
+    { id: 'p_maya', name: 'Maya', game: 'solo' },
+    { id: 'p_dana', name: 'Dana', game: 'uno' }
+  ];
+  const results = [
+    { id: 's1', at: 1, game: 'solo', lowerWins: true, players: [p('maya', 'Maya', true)] },
+    { id: 'u1', at: 2, game: 'uno', lowerWins: false, players: [p('dana', 'Dana', true)] },
+    { id: 'u2', at: 3, lowerWins: false, players: [p('maya', 'Maya', true)] }
+  ];
+  const solo = Leaderboard.aggregate(pool, results, 'solo');
+  assert.deepEqual(solo.map((row) => row.key), ['p_maya']);
+  assert.equal(solo[0].games, 1);
+  const uno = Leaderboard.aggregate(pool, results, 'uno');
+  assert.deepEqual(uno.map((row) => row.key).sort(), ['p_dana', 'p_maya']);
+  assert.equal(uno.find((row) => row.key === 'p_maya').games, 1);
+});
+
+test('a profile registered for one game does not add a zero row to another', () => {
+  const pool = [
+    { id: 'p_maya', name: 'Maya', game: 'solo' },
+    { id: 'p_dana', name: 'Dana', game: 'uno' }
+  ];
+  const uno = Leaderboard.aggregate(pool, [], 'uno');
+  assert.deepEqual(uno.map((row) => row.key), ['p_dana']);
+});
+
+test('a profile from another game still labels its result row', () => {
+  const pool = [{ id: 'p_maya', name: 'Maya', emoji: 'cat', color: '#111111', game: 'solo' }];
+  const results = [
+    { id: 'u1', at: 2, game: 'uno', lowerWins: false, players: [p('maya', 'Maya', true)] }
+  ];
+  const uno = Leaderboard.aggregate(pool, results, 'uno');
+  assert.equal(uno[0].name, 'Maya');
+  assert.equal(uno[0].emoji, 'cat');
+  assert.equal(uno[0].color, '#111111');
+});
+
+test('allPlayers merges pool profiles and result participants, deduped by key', () => {
+  const pool = [{ id: 'p_maya', name: 'Maya Prime', emoji: 'cat', color: '#f0b429', game: 'uno' },
+    { id: 'p_idle', name: 'Idle', emoji: '', game: 'solo' }];
+  const results = [
+    { id: 's1', at: 10, game: 'solo', gameName: 'SOLO', lowerWins: true,
+      players: [p('maya', 'Maya', true), p('otto', 'Otto', false)] },
+    { id: 's2', at: 20, game: 'solo', gameName: 'SOLO', lowerWins: true,
+      players: [p('maya', 'Maya', false), p('otto', 'Otto', true)] },
+    { id: 'u1', at: 30, game: 'uno', gameName: 'MATCHUP', lowerWins: true,
+      players: [p('maya', 'Maya', true), p('sam', 'Sam', false)] }
+  ];
+  const rows = Leaderboard.allPlayers(pool, results);
+  assert.deepEqual(rows.map((row) => row.key), ['p_maya', 'p_otto', 'p_sam', 'p_idle']);
+  const maya = rows[0];
+  assert.equal(maya.name, 'Maya Prime'); // pool profile wins name/emoji/colour
+  assert.equal(maya.emoji, 'cat');
+  assert.equal(maya.color, '#f0b429');
+  assert.equal(maya.games, 3);
+  assert.equal(maya.wins, 2);
+  assert.equal(maya.losses, 1);
+  assert.deepEqual(maya.favourite, { game: 'solo', name: 'SOLO', played: 2 });
+  const otto = rows[1];
+  assert.equal(otto.games, 2);
+  assert.equal(otto.wins, 1);
+  assert.equal(otto.color, Leaderboard.colourFor('p_otto'));
+  assert.deepEqual(otto.favourite, { game: 'solo', name: 'SOLO', played: 2 });
+  const idle = rows[3];
+  assert.equal(idle.name, 'Idle');
+  assert.equal(idle.games, 0);
+  assert.equal(idle.favourite, null);
+});
+
+test('allPlayers keeps a player counted once per result even if listed twice', () => {
+  const results = [
+    { id: 'd1', at: 5, game: 'solo', gameName: 'SOLO', lowerWins: true,
+      players: [p('kip', 'Kip', true), p('kip', 'Kip', false)] }
+  ];
+  const rows = Leaderboard.allPlayers([], results);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].games, 1);
+});
+
+test('allPlayers keeps the newest name and emoji for a result-only player', () => {
+  const results = [
+    { id: 'a', at: 10, game: 'solo', lowerWins: true,
+      players: [{ key: 'p_renamed', name: 'Old Name', emoji: 'cat', total: 1, win: true }] },
+    { id: 'b', at: 20, game: 'solo', lowerWins: true,
+      players: [{ key: 'p_renamed', name: 'New Name', emoji: 'fox', total: 2, win: false }] }
+  ];
+  const rows = Leaderboard.allPlayers([], results);
+  assert.equal(rows[0].name, 'New Name');
+  assert.equal(rows[0].emoji, 'fox');
+});
+
+test('allPlayers merges a duplicated key in one result like aggregate does', () => {
+  const results = [
+    { id: 'd1', at: 5, game: 'solo', lowerWins: true,
+      players: [
+        { key: 'p_kip', name: 'Kip', emoji: '', total: 3, win: false },
+        { key: 'p_kip', name: 'Kip', emoji: '', total: 9, win: true }
+      ] }
+  ];
+  const rows = Leaderboard.allPlayers([], results);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].games, 1);
+  assert.equal(rows[0].wins, 1);
+  assert.equal(rows[0].losses, 0);
+});
+
+test('allPlayers sorts empty input into empty output', () => {
+  assert.deepEqual(Leaderboard.allPlayers(null, null), []);
+});
+
+// The selectable universe for one table: locals first, then everyone the
+// Players page already knows, name-matched, minus tombstoned names.
+test('mergePlayers returns local entries first, unpadded', () => {
+  const out = Leaderboard.mergePlayers(
+    [{ id: 'a1', name: 'Maya', emoji: '🐱', color: '#f0b429' }], [], [], []);
+  assert.deepEqual(out, [
+    { id: 'a1', name: 'Maya', emoji: '🐱', color: '#f0b429', pooled: false }
+  ]);
+});
+
+test('mergePlayers appends pool-only profiles', () => {
+  const pool = [{ id: Leaderboard.keyFor('Obi'), name: 'Obi', emoji: '🦊', color: '#5bc8af', game: 'solo' }];
+  const out = Leaderboard.mergePlayers([], pool, [], []);
+  assert.deepEqual(out, [
+    { id: pool[0].id, name: 'Obi', emoji: '🦊', color: '#5bc8af', pooled: true }
+  ]);
+});
+
+test('mergePlayers appends names known only from results', () => {
+  const results = [{ id: 'r1', at: 5, game: 'solo', gameName: 'SOLO',
+    players: [{ key: Leaderboard.keyFor('Kim'), name: 'Kim', emoji: '🐼', total: 3, win: true }] }];
+  const out = Leaderboard.mergePlayers([], [], results, []);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].name, 'Kim');
+  assert.equal(out[0].pooled, true);
+});
+
+test('mergePlayers dedupes by normalised name, local wins', () => {
+  const pool = [{ id: Leaderboard.keyFor('MAYA'), name: 'MAYA', emoji: '🦊', color: '#5bc8af', game: 'solo' }];
+  const out = Leaderboard.mergePlayers(
+    [{ id: 'a1', name: 'Maya', emoji: '🐱', color: '#f0b429' }], pool, [], []);
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0], { id: 'a1', name: 'Maya', emoji: '🐱', color: '#f0b429', pooled: false });
+});
+
+test('mergePlayers skips removed names from any source', () => {
+  const key = Leaderboard.keyFor('Zed');
+  const results = [{ id: 'r1', at: 5, game: 'solo', players:
+    [{ key: key, name: 'Zed', emoji: '🦖', total: 1, win: false }] }];
+  const pool = [{ id: key, name: 'Zed', emoji: '🦖', color: '#5bc8af', game: 'solo' }];
+  const out = Leaderboard.mergePlayers([], pool, results, ['ZED ']);
+  assert.deepEqual(out, []);
+});
+
+test('mergePlayers sorts pooled entries and handles empties', () => {
+  const pool = [{ id: 'p_b', name: 'Bo', game: 'solo' }, { id: 'p_a', name: 'Al', game: 'solo' }];
+  const out = Leaderboard.mergePlayers([], pool, [], []);
+  assert.deepEqual(out.map(function (r) { return r.name; }), ['Al', 'Bo']);
+  assert.deepEqual(Leaderboard.mergePlayers(null, null, null, null), []);
+});

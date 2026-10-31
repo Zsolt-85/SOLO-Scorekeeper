@@ -4,8 +4,9 @@
   const Model = global.Model
     || (typeof module !== 'undefined' && module.exports ? require('./model.js') : null);
 
-  const KEY = 'noting-more.v2';
-  const LEGACY_KEY = 'noting-more.v1';
+  const KEY = 'noting-more.v3';
+  const LEGACY_KEY = 'noting-more.v2';
+  const LEGACY_KEYS = ['noting-more.v2', 'noting-more.v1'];
 
   function createStore(storage, deps) {
     const model = Model.create(deps || {});
@@ -24,45 +25,30 @@
     }
 
     function load() {
-      let raw = null;
-      try {
-        raw = storage.getItem(KEY);
-      } catch (error) {
-        degradedReason = 'blocked';
-        return model.empty();
-      }
-
-      if (raw) {
+      let corrupt = false;
+      const keys = [KEY].concat(LEGACY_KEYS);
+      for (let i = 0; i < keys.length; i += 1) {
+        const key = keys[i];
+        let raw = null;
+        try {
+          raw = storage.getItem(key);
+        } catch (error) {
+          degradedReason = 'blocked';
+          return model.empty();
+        }
+        if (!raw) continue;
         try {
           const stored = model.fromDocument(JSON.parse(raw));
-          if (stored) return stored;
-          degradedReason = 'corrupt';
-          return model.empty();
+          if (stored) {
+            if (key !== KEY) write(stored);
+            return stored;
+          }
         } catch (error) {
-          degradedReason = 'corrupt';
-          return model.empty();
+          // Try the next, older document.
         }
+        corrupt = true;
       }
-
-      let legacy = null;
-      try {
-        legacy = storage.getItem(LEGACY_KEY);
-      } catch (error) {
-        legacy = null;
-      }
-      if (legacy) {
-        let migrated = null;
-        try {
-          migrated = model.fromDocument(JSON.parse(legacy));
-        } catch (error) {
-          migrated = null;
-        }
-        if (migrated) {
-          write(migrated);
-          return migrated;
-        }
-        degradedReason = 'corrupt';
-      }
+      if (corrupt) degradedReason = 'corrupt';
       return model.empty();
     }
 
@@ -106,10 +92,38 @@
 
       degradedReason: function () { return degradedReason; },
 
-      getSettings: function () { return { lowerWins: state.settings.lowerWins }; },
+      getLibrary: function () { return state.library; },
 
-      setLowerWins: function (flag) {
-        return apply(function (draft) { return model.setLowerWins(draft, flag); });
+      getType: function (id) { return model.findType(state, id); },
+
+      getActiveType: function () { return model.currentType(state); },
+
+      setActiveType: function (id) {
+        return apply(function (draft) { return model.setActiveType(draft, id); });
+      },
+
+      addType: function (input) {
+        return apply(function (draft) { return model.addType(draft, input); });
+      },
+
+      updateType: function (id, input) {
+        return apply(function (draft) { return model.updateType(draft, id, input); });
+      },
+
+      archiveType: function (id) {
+        return apply(function (draft) { return model.archiveType(draft, id); });
+      },
+
+      restoreType: function (id) {
+        return apply(function (draft) { return model.restoreType(draft, id); });
+      },
+
+      resetType: function (id) {
+        return apply(function (draft) { return model.resetType(draft, id); });
+      },
+
+      gamesForType: function (typeId, finished) {
+        return model.gamesForType(state, typeId, finished);
       },
 
       addPlayer: function (name, emoji) {
@@ -182,7 +196,7 @@
     return api;
   }
 
-  const Store = { createStore: createStore, KEY: KEY, LEGACY_KEY: LEGACY_KEY };
+  const Store = { createStore: createStore, KEY: KEY, LEGACY_KEY: LEGACY_KEY, LEGACY_KEYS: LEGACY_KEYS };
   global.Store = Store;
   if (typeof module !== 'undefined' && module.exports) module.exports = Store;
 })(typeof window !== 'undefined' ? window : globalThis);

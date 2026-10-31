@@ -1,16 +1,17 @@
 # SOLO Scorekeeper
 
-A tiny, private score keeper for the card game **SOLO** (and **UNO**). Add players, type each round's points, and watch an animated podium crown the winner. Runs in the browser with no build step and no dependencies. A group can share one scorekeeper between phones, and an optional global leaderboard keeps every player's record across all games.
+A tiny, private score keeper for the card games **SOLO**, **UNO** and custom games. The library (`#/library`) is the home: SOLO, UNO and any custom game you create. Each game has house rules (lowest/highest, manual/limit), a per-game **Log** and a per-game **Hall of Fame**. Live tables (`#/play/:matchId`) are SOLO/UNO only; the table freezes its rules and stays online. Custom games are local-only and do not support live tables. Runs in the browser with no build step and no dependencies.
 
-**Scoring.** By default the **fewest points wins** (our house rules). Switch to **most points wins** on the home screen for standard UNO/SOLO scoring. The rules for both games are built into the app under **Rules**.
+**House rules.** By default the **fewest points wins** (our house rules). Each game can switch to **most points wins**. Rules are built into the app under **Rules** and also set per-game under House rules; live tables freeze the rules chosen at start.
 
 ## Run it
 
 Open `index.html` in any modern browser. There is no build step and nothing to install.
 
-- **Home** — add players (emoji + name) with the *Add player* card, tap a card to pick who is playing, then start a game. *Edit players* opens manage mode, where each card gets edit and delete controls. Games still in play are listed under **Playing now**. A card also shows that player's record in this scorekeeper (`Win 3 · Lose 1`) as soon as they have finished a game. Two players on one roster (and on the whole leaderboard) cannot share a name; case and extra spaces do not make a name different.
-- **Game** — one points box per player each round, running totals, undo, and the option to add a late player.
-- **Podium** — animated reveal. Lowest total wins by default (gold bar + crown); flip the scoring mode for UNO.
+- **Library** (`#/library`) — home with SOLO, UNO and custom games. Library uses the wider 960 px container; score pad and podium keep 640 px.
+- **New game** (`#/new-game`) — create SOLO, UNO or a custom game; custom games stay local-only.
+- **Game** (`#/box/:id`) — one points box per player, tabs for Table / Hall of Fame / Log / Rules, house rules editable here.
+- **Podium** (`#/podium/:matchId`) — animated reveal. Lowest total wins by default; flip for UNO.
 - **History** — every finished game, newest first; tap one to reopen its podium. Each row keeps the crown the game was actually played for, so flipping the scoring mode later never rewrites an old result.
 - **Leaderboard** — every player who has finished a game, ranked by win percentage. Solo games and shared-lobby games both count. Register a name there before playing; a name belongs to one player everywhere. A registered player with no games yet can be removed to free the name again.
 - **Rules** — how SOLO and UNO scoring works, card by card.
@@ -55,7 +56,33 @@ The rules allow any signed-in device to read and write one lobby if it knows the
 node --test
 ```
 
-178 tests covering the scoring/ranking maths (including the per-player win/loss record), the model (including the v1 → v2 migration), the storage layer, the shared-lobby logic, and the global leaderboard (names, ranking, result shape, offline queue and the Firebase adapter). Needs Node 18+.
+239 tests covering the scoring/ranking maths (including per-player win/loss record and per-game Hall of Fame / Log), the model (v1 → v2 migration, custom game types, library/store/space), the storage layer, shared-lobby logic (SOLO/UNO only), live tables, global leaderboard (names, ranking, result shape, offline queue and Firebase adapter), and focus/accessibility rules. No build step, no dependencies. Needs Node 18+.
+
+## Routes
+
+| Route | View |
+|---|---|
+| `#/library` | Library (default) |
+| `#/new-game` | New game form |
+| `#/box/:id` | Game page, Table |
+| `#/box/:id/hall` | Hall of Fame |
+| `#/box/:id/log` | Log |
+| `#/box/:id/rules` | House rules |
+| `#/play/:matchId` | Score pad |
+| `#/podium/:matchId` | Podium |
+| `#/rules` | How to play (existing card-rules explainer) |
+
+Legacy redirects: `#/home` → `#/library`; `#/history` → the active game's Log; `#/leaderboard` → the active game's Hall; `#/game/:matchId` → `#/play/:matchId`. Unknown routes → `#/library`.
+
+Live tables are SOLO/UNO only (`#/play/:matchId`); the table freezes its rules and stays online. Custom games are local-only and have no live table.
+
+## Migration
+
+`v2`/`v1` data migrates automatically on first load. Old highest-wins games map to **UNO**; everything else maps to **SOLO**.
+
+## Firebase
+
+`pool` and `results` gain a `game` field; results remain append-only.
 
 ## Deploy
 

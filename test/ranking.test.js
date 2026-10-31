@@ -88,14 +88,19 @@ test('rank defaults to lowest-wins when no direction is given', () => {
   assert.deepEqual(ranked.map((r) => r.isWinner), [true, false, false]);
 });
 
-test('directionFor prefers the direction frozen on the game', () => {
-  assert.equal(Ranking.directionFor({ lowerWins: false }, true), false);
-  assert.equal(Ranking.directionFor({ lowerWins: true }, false), true);
+test('directionFor prefers the frozen rules over lowerWins', () => {
+  assert.equal(Ranking.directionFor({ rules: { winner: 'lowest' }, lowerWins: false }), true);
+  assert.equal(Ranking.directionFor({ rules: { winner: 'highest' }, lowerWins: true }), false);
 });
 
-test('directionFor falls back to the current direction for an unfrozen game', () => {
-  assert.equal(Ranking.directionFor({ finishedAt: 5 }, false), false);
-  assert.equal(Ranking.directionFor(null, true), true);
+test('directionFor falls back to lowerWins for a match with no rules', () => {
+  assert.equal(Ranking.directionFor({ lowerWins: false }, true), false);
+  assert.equal(Ranking.directionFor({}, false), false);
+  assert.equal(Ranking.directionFor({}, undefined), true);
+});
+
+test('directionFor ignores malformed rules', () => {
+  assert.equal(Ranking.directionFor({ rules: { winner: 'middle' }, lowerWins: false }, true), false);
 });
 
 test('rank crowns the highest total when lowerWins is false', () => {
@@ -199,4 +204,44 @@ test('record keeps the games played before a rename', () => {
 test('record counts a game with no rounds as nothing', () => {
   const game = finished(pair().seats, null);
   assert.deepEqual(Ranking.record([game], MAYA), { wins: 0, losses: 0 });
+});
+
+test('record follows rules even when lowerWins disagrees', () => {
+  const players = [{ id: 'p1', name: 'Maya', emoji: 'M' }];
+  const games = [{
+    finishedAt: 1, lowerWins: true,
+    rules: { winner: 'highest', end: { type: 'manual' } },
+    seats: [{ id: 's1', playerId: 'p1', name: 'Maya', emoji: 'M' }],
+    rounds: [{ id: 'r0', points: { s1: 9 } }]
+  }];
+  assert.deepEqual(Ranking.record(games, players[0], true), { wins: 1, losses: 0 });
+});
+
+test('limitFor reads only a valid limit end', () => {
+  assert.equal(Ranking.limitFor({ rules: { winner: 'highest', end: { type: 'limit', limit: 500 } } }), 500);
+  assert.equal(Ranking.limitFor({ rules: { winner: 'lowest', end: { type: 'manual' } } }), null);
+  assert.equal(Ranking.limitFor({ rules: { winner: 'lowest', end: { type: 'limit', limit: 0 } } }), null);
+  assert.equal(Ranking.limitFor({ rules: { winner: 'lowest', end: { type: 'limit', limit: 1.5 } } }), null);
+  assert.equal(Ranking.limitFor(null), null);
+});
+
+test('limitReached is true when any total is at or above the limit', () => {
+  const game = {
+    seats: [{ id: 'a' }, { id: 'b' }],
+    rounds: [{ id: 'r0', points: { a: 500, b: 20 } }],
+    rules: { winner: 'highest', end: { type: 'limit', limit: 500 } }
+  };
+  assert.equal(Ranking.limitReached(game), true);
+  game.rounds[0].points.a = 501;
+  assert.equal(Ranking.limitReached(game), true);
+  game.rounds[0].points.a = 499;
+  assert.equal(Ranking.limitReached(game), false);
+});
+
+test('limitReached is false without a limit or rounds', () => {
+  assert.equal(Ranking.limitReached({ seats: [{ id: 'a' }], rounds: [] }), false);
+  assert.equal(Ranking.limitReached({
+    seats: [{ id: 'a' }], rounds: [{ id: 'r0', points: { a: 999 } }],
+    rules: { winner: 'lowest', end: { type: 'manual' } }
+  }), false);
 });

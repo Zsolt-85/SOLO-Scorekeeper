@@ -50,11 +50,12 @@ test('a missing config refuses the new pool operations', async () => {
 test('putPoolPlayer creates a missing profile', async () => {
   const fake = fakeSdk({ exists: false });
   const adapter = Firebase.create({ config: configured(), sdk: fake.sdk });
-  await adapter.putPoolPlayer('p_maya', { name: 'Maya', emoji: 'cat' });
+  await adapter.putPoolPlayer('p_maya', { name: 'Maya', emoji: 'cat', game: 'uno' });
   assert.equal(fake.writes.length, 1);
   assert.equal(fake.writes[0][0], 'pool/p_maya');
   assert.equal(fake.writes[0][1].name, 'Maya');
   assert.equal(fake.writes[0][1].emoji, 'cat');
+  assert.equal(fake.writes[0][1].game, 'uno');
   assert.equal(typeof fake.writes[0][1].createdAt, 'number');
 });
 
@@ -103,3 +104,12 @@ test('deletePoolPlayer deletes one document', async () => {
   await adapter.deletePoolPlayer('p_maya');
   assert.deepEqual(fake.deletes, ['pool/p_maya']);
 });
+
+
+test('putPoolPlayer defaults a missing game to SOLO', async () => {
+  const fake = fakeSdk({ exists: false });
+  const adapter = Firebase.create({ config: configured(), sdk: fake.sdk });
+  await adapter.putPoolPlayer('p_maya', { name: 'Maya', emoji: 'cat' });
+  assert.equal(fake.writes[0][1].game, 'solo');
+});
+

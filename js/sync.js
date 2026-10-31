@@ -48,6 +48,29 @@
     }
   }
 
+  function normaliseOutboxOp(op) {
+    if (!op || !op.data) return op;
+    if (op.kind === 'pool') {
+      if (typeof op.data.game === 'string' && op.data.game) return op;
+      return {
+        kind: op.kind, id: op.id,
+        data: Object.assign({}, op.data, { game: 'solo' })
+      };
+    }
+    if (op.kind === 'result') {
+      if (typeof op.data.game === 'string' && op.data.game) return op;
+      const game = op.data.lowerWins === false ? 'uno' : 'solo';
+      return {
+        kind: op.kind, id: op.id,
+        data: Object.assign({}, op.data, {
+          game: game,
+          gameName: game === 'uno' ? 'UNO' : 'SOLO'
+        })
+      };
+    }
+    return op;
+  }
+
   function create(options) {
     const opts = options || {};
     const adapter = opts.adapter || null;
@@ -57,6 +80,7 @@
     let cached = readJson(storage, CACHE_KEY, null);
     let outbox = readJson(storage, OUTBOX_KEY, []);
     if (!Array.isArray(outbox)) outbox = [];
+    outbox = outbox.map(normaliseOutboxOp);
 
     function configured() {
       return !!(adapter && adapter.configured && adapter.configured());
@@ -147,11 +171,13 @@
       const key = Leaderboard.keyFor(name);
       if (!key) return Promise.reject(new Error('A name is required.'));
       if (mayQueue && registered[key]) return Promise.resolve({ key: key, created: false });
+      const game = typeof opts.game === 'string' && opts.game ? opts.game : 'solo';
       const profile = {
         name: String(name === null || name === undefined ? '' : name)
           .replace(/\s+/g, ' ')
           .trim(),
-        emoji: String(emoji || '')
+        emoji: String(emoji || ''),
+        game: game
       };
 
       function done() {

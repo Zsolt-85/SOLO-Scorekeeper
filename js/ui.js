@@ -29,18 +29,46 @@
     lobbyForm: null, lobbyName: '', lobbyCode: '', lobbyNote: '', busy: null,
     roundGameId: null, roundDraft: {}, refreshing: false, podiumPlayed: null,
     board: null, boardKey: null, boardName: '', boardEmoji: EMOJI[0], boardBusy: false,
-    boardError: '', boardNotice: '', boardLoadError: ''
+    boardError: '', boardNotice: '', boardLoadError: '',
+    showArchived: false, newGame: null, newGameError: '', newGameBusy: false,
+    houseError: '', houseNotice: '', joinCode: '', joining: false, leaving: false,
+    rosterFilter: ''
   };
 
   const views = {
-    home: document.getElementById('view-home'),
-    game: document.getElementById('view-game'),
+    library: document.getElementById('view-library'),
+    'new-game': document.getElementById('view-new-game'),
+    box: document.getElementById('view-box'),
+    play: document.getElementById('view-game'),
     podium: document.getElementById('view-podium'),
-    history: document.getElementById('view-history'),
     rules: document.getElementById('view-rules'),
-    leaderboard: document.getElementById('view-leaderboard')
+    friends: document.getElementById('view-friends'),
+    community: document.getElementById('view-community'),
+    leaderboard: document.getElementById('view-leaderboard'),
+    players: document.getElementById('view-players')
   };
   const banner = document.getElementById('banner');
+
+  // Last-resort visibility: an uncaught error used to leave a black page with
+  // nothing to read. Show the stack in a fixed panel so the cause is visible.
+  function showCrash(error) {
+    const message = (error && (error.stack || error.message)) || String(error);
+    let note = document.getElementById('crash-note');
+    if (!note) {
+      note = document.createElement('aside');
+      note.id = 'crash-note';
+      note.setAttribute('role', 'alert');
+      note.style.cssText = 'position:fixed;left:10px;right:10px;bottom:10px;z-index:9999;'
+        + 'max-height:45vh;overflow:auto;padding:10px;background:#3a0e0e;color:#ffd9d9;'
+        + 'border:1px solid #ef7f6b;border-radius:10px;'
+        + 'font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap';
+      (document.body || document.documentElement).appendChild(note);
+    }
+    note.textContent = message;
+    if (window.console && console.error) console.error('[SCORELOCK] crashed:', error);
+  }
+  window.addEventListener('error', function (event) { showCrash(event.error || event.message); });
+  window.addEventListener('unhandledrejection', function (event) { showCrash(event.reason); });
 
   function escapeHtml(value) {
     return String(value)
@@ -57,15 +85,17 @@
   }
 
   function currentRoute() {
-    const hash = (location.hash || '#/home').replace(/^#\/?/, '');
+    const hash = (location.hash || '#/library').replace(/^#\/?/, '');
     const parts = hash.split('/');
-    return { name: parts[0] || 'home', id: parts[1] || null };
+    return {
+      name: parts[0] || 'library',
+      id: parts[1] || null,
+      tab: parts[2] || null
+    };
   }
 
   function navigate(path) {
     const next = '#/' + path;
-    // Re-rendering here matters: switching back to the route we are already on
-    // (leaving a lobby, say) fires no hashchange of its own.
     if (location.hash === next) { render(); return; }
     location.hash = next;
   }
@@ -78,7 +108,7 @@
 
   function currentGameId() {
     const route = currentRoute();
-    if (route.name !== 'game') return null;
+    if (route.name !== 'play') return null;
     const game = gameFor(route.id);
     return game ? game.id : null;
   }
@@ -101,19 +131,54 @@
     return String(code || '').replace(/(.{4})(?=.)/, '$1 ');
   }
 
+  function typeForGame(game) {
+    return game ? backend.getType(game.typeId) || null : null;
+  }
+
+  function gameName(game) {
+    return game && game.typeName ? game.typeName : 'SOLO';
+  }
+
+  function ruleLabel(rules) {
+    if (!rules) return '';
+    return (rules.winner === 'highest' ? 'Highest wins' : 'Lowest wins')
+      + ' · ' + (rules.end && rules.end.type === 'limit'
+        ? 'To ' + rules.end.limit : 'Manual');
+  }
+
+  function ruleChips(type) {
+    return '<span class="chip">' + (type.rules.winner === 'highest' ? 'Highest wins' : 'Lowest wins')
+      + '</span><span class="chip">'
+      + (type.rules.end.type === 'limit' ? 'To ' + type.rules.end.limit : 'Manual')
+      + '</span>';
+  }
+
+  function coverHtml(type, extraClass) {
+    if (!type) {
+      return '<div class="cover cover-pips generic' + (extraClass ? ' ' + extraClass : '')
+        + '"><span class="cover-face" aria-hidden="true">🎲</span>'
+        + '<span class="cover-label">A game</span></div>';
+    }
+    return '<div class="cover cover-' + escapeHtml(type.pattern) + (extraClass ? ' ' + extraClass : '')
+      + '" style="--cover:' + escapeHtml(type.colour) + '">'
+      + '<span class="cover-face" aria-hidden="true">' + escapeHtml(type.emoji) + '</span>'
+      + '<span class="cover-label">' + escapeHtml(type.name) + '</span></div>';
+  }
+
   // Best-effort: registering a name and freezing a finished game. Failures land in
   // Sync's outbox, so a finish is never blocked by the network.
   function publishFinished(mode, players, games) {
     const origin = mode === 'lobby' && space ? space.status().code : '';
-    (players || []).forEach(function (player) {
-      if (!player || !player.name) return;
-      sync.register(player.name, player.emoji).catch(function () {});
-    });
     (games || []).forEach(function (game) {
+      const gameId = game.typeId || (game.lowerWins === false ? 'uno' : 'solo');
+      (game.seats || []).forEach(function (seat) {
+        if (!seat || !seat.name) return;
+        sync.register(seat.name, seat.emoji, { game: gameId }).catch(function () {});
+      });
       const result = Leaderboard.resultFor(game, {
         mode: mode,
         origin: origin,
-        lowerWins: game && typeof game.lowerWins === 'boolean' ? game.lowerWins : lowerWins()
+        lowerWins: game && typeof game.lowerWins === 'boolean' ? game.lowerWins : true
       });
       if (result) sync.publish(result).catch(function () {});
     });
@@ -150,17 +215,38 @@
     space.subscribe(check);
   }
 
-  function enterLobby(code, name) {
+  function enterLobby(code, name, type) {
     if (space) space.leave();
     space = Space.create({
       adapter: adapter,
       code: code,
       name: name,
+      type: type || local.getActiveType(),
       deviceId: deviceId()
     });
     backend = space;
     space.subscribe(function () {
-      if (space) render();
+      if (!space) return;
+      const status = space.status();
+      const remembered = local.getState().lobby;
+      if (status.tableReady && status.game) {
+        if (status.game !== (remembered && remembered.typeId)) {
+          const localType = local.getType(status.game);
+          local.setLobby({
+            code: status.code,
+            name: status.name || (remembered && remembered.name) || '',
+            joinedAt: remembered && remembered.joinedAt,
+            typeId: status.game
+          });
+          if (localType && !localType.archived) local.setActiveType(status.game);
+        }
+        if (ui.joining) {
+          ui.joining = false;
+          navigate('box/' + status.game);
+          return;
+        }
+      }
+      render();
     });
     watchLobbyBackfill();
     render();
@@ -193,8 +279,14 @@
   }
 
   // One tap: the code is the whole setup, so there is nothing to fill in first.
-  function createLobby() {
-    if (ui.busy) return;
+  function createLobby(typeId) {
+    if (ui.busy || !adapter) return;
+    const type = local.getType(typeId) || local.getActiveType();
+    if (!type || !type.builtin) {
+      ui.addError = 'Live tables are available for SOLO and UNO in this release.';
+      render();
+      return;
+    }
     ui.busy = 'create';
     ui.lobbyNote = '';
     ui.addError = '';
@@ -202,10 +294,12 @@
     function attempt(left) {
       freshCode().then(function (code) {
         return adapter.createSpace(code, '').then(function () {
-          local.setLobby({ code: code, name: '', joinedAt: Date.now() });
+          local.setLobby({ code: code, name: '', joinedAt: Date.now(), typeId: type.id });
           ui.busy = null;
           ui.lobbyNote = 'Send the code to the other phone.';
-          enterLobby(code, '');
+          enterLobby(code, '', type);
+          if (space) space.initTable();
+          navigate('box/' + type.id);
         }, function (error) {
           if (error && error.code === 'already-exists' && left > 1) { attempt(left - 1); return; }
           throw error;
@@ -277,22 +371,29 @@
       render();
       return;
     }
+    if (!canLeaveTable('another table')) return;
+    if (space) leaveLobby();
     ui.busy = 'join';
     ui.addError = '';
+    ui.joining = true;
     render();
     adapter.spaceExists(code).then(function (exists) {
       ui.busy = null;
       if (!exists) {
+        ui.joining = false;
         ui.addError = 'No lobby found for that code.';
         render();
         focusById('lobby-code');
         return;
       }
-      local.setLobby({ code: code, name: '', joinedAt: Date.now() });
+      local.setLobby({ code: code, name: '', joinedAt: Date.now(), typeId: null });
+      ui.lobbyForm = null;
       ui.lobbyNote = '';
-      enterLobby(code, '');
+      enterLobby(code, '', local.getActiveType());
+      navigate('library');
     }).catch(function (error) {
       ui.busy = null;
+      ui.joining = false;
       ui.addError = (error && error.message) || 'The lobby could not be reached.';
       render();
       focusById('lobby-code');
@@ -310,7 +411,8 @@
     ui.lobbyCode = '';
     ui.lobbyNote = '';
     ui.busy = null;
-    navigate('home');
+    ui.joining = false;
+    navigate('library');
   }
 
   function refreshBanner() {
@@ -327,27 +429,78 @@
     banner.hidden = false;
   }
 
+  function lastPlayedFor(typeId) {
+    let newest = 0;
+    backend.finishedGames().forEach(function (game) {
+      if (game.typeId === typeId && game.finishedAt > newest) newest = game.finishedAt;
+    });
+    backend.activeGames().forEach(function (game) {
+      if (game.typeId === typeId && game.startedAt > newest) newest = game.startedAt;
+    });
+    return newest;
+  }
+
+  function finishedCountFor(typeId) {
+    return backend.finishedGames().filter(function (game) {
+      return game.typeId === typeId;
+    }).length;
+  }
+
+  function shelfOrder(library) {
+    return library.slice().sort(function (a, b) {
+      const played = lastPlayedFor(b.id) - lastPlayedFor(a.id);
+      if (played !== 0) return played;
+      const builtin = (a.builtin ? 0 : 1) - (b.builtin ? 0 : 1);
+      if (builtin !== 0) return builtin;
+      return (a.createdAt || 0) - (b.createdAt || 0);
+    });
+  }
+
   function render() {
+    try {
     const route = currentRoute();
-    if (route.name === 'game' && !gameFor(route.id)) {
-      // Someone else may have ended this game: show them the result rather than
-      // dropping them on the home screen mid-celebration.
+    if (route.name === 'home') { navigate('library'); return; }
+    if (route.name === 'history') {
+      const active = backend.getActiveType();
+      navigate('box/' + (active ? active.id : 'solo') + '/log');
+      return;
+    }
+    if (route.name === 'game' && route.id) { navigate('play/' + route.id); return; }
+    if (route.name === 'new-game' && space) { navigate('library'); return; }
+    if (route.name === 'box') {
+      const type = route.id ? backend.getType(route.id) : null;
+      if (!type) { navigate('library'); return; }
+      if (space && space.status().game !== type.id) { navigate('library'); return; }
+      if (route.tab === 'rules' && type.archived) { navigate('box/' + type.id + '/hall'); return; }
+    }
+    if (route.name === 'play' && !gameFor(route.id)) {
       if (backend.getGame(route.id)) { navigate('podium/' + route.id); return; }
-      navigate('home');
+      navigate('library');
       return;
     }
     if (route.name === 'podium') {
       const target = route.id ? backend.getGame(route.id) : backend.finishedGames()[0];
-      if (!target) { navigate('home'); return; }
+      if (!target) { navigate('library'); return; }
     }
     Object.keys(views).forEach(function (name) {
       views[name].hidden = name !== route.name;
     });
-    if (route.name === 'home') views.home.innerHTML = renderHome();
-    if (route.name === 'game') views.game.innerHTML = renderGame(route.id);
+    const routeKey = window.location.hash || '#/library';
+    if (ui.lastRouteKey !== routeKey) {
+      ui.lastRouteKey = routeKey;
+      // Browser scroll restoration would re-scroll to the saved position
+      // even after a reload — take manual control so every route change
+      // (and initial load) starts at the top.
+      if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+      window.scrollTo(0, 0);
+    }
+    if (route.name === 'library') views.library.innerHTML = renderLibrary();
+    if (route.name === 'new-game') views['new-game'].innerHTML = renderNewGame();
+    if (route.name === 'leaderboard') views.leaderboard.innerHTML = renderLeaderboard(route.id);
+    if (route.name === 'players') views.players.innerHTML = renderPlayers();
+    if (route.name === 'box') views.box.innerHTML = renderBox(route.id, route.tab || 'table');
+    if (route.name === 'play') views.play.innerHTML = renderGame(route.id);
     if (route.name === 'podium') {
-      // Snapshot updates (a presence heartbeat, say) must not restart the reveal:
-      // only the first paint of a podium animates, later ones show the result.
       const key = 'podium/' + (route.id || 'latest');
       const settled = ui.podiumPlayed === key;
       views.podium.innerHTML = renderPodium(route.id, settled);
@@ -355,18 +508,48 @@
     } else {
       ui.podiumPlayed = null;
     }
-    if (route.name === 'history') views.history.innerHTML = renderHistory();
     if (route.name === 'rules') views.rules.innerHTML = renderRules();
-    if (route.name === 'leaderboard') {
-      if (ui.boardKey !== 'leaderboard') {
-        ui.boardKey = 'leaderboard';
-        loadBoard();
-      }
-      views.leaderboard.innerHTML = renderLeaderboard();
+    if (route.name === 'friends') views.friends.innerHTML = renderFriends();
+    if (route.name === 'community') views.community.innerHTML = renderCommunity();
+    if (route.name === 'box' && (route.tab || 'table') === 'hall') {
+      const key = 'box/' + route.id;
+      if (ui.boardKey !== key) { ui.boardKey = key; loadBoard(); }
+    } else if (route.name === 'box' && (route.tab || 'table') === 'table') {
+      // The merged roster mixes in the online pool, so the Table tab must
+      // fetch like the other pages — otherwise fresh sessions show only locals.
+      const key = 'box-table/' + route.id;
+      if (ui.boardKey !== key) { ui.boardKey = key; loadBoard(); }
+    } else if (route.name === 'leaderboard' || route.name === 'players') {
+      // One fetch per visit; both pages render from the same loaded board.
+      if (ui.boardKey !== 'board') { ui.boardKey = 'board'; loadBoard(); }
     } else {
       ui.boardKey = null;
     }
     refreshBanner();
+    debugChip(route);
+    } catch (error) {
+      // Even if some handler somewhere swallows this, the screen reports it.
+      showCrash(error);
+      throw error;
+    }
+  }
+
+  // Small fixed status chip (debug build aid): what route rendered and what the
+  // views ended up with. Makes a "black screen" readable instead of silent.
+  function debugChip(route) {
+    try {
+      let chip = document.getElementById('debug-chip');
+      if (!chip) {
+        chip = document.createElement('div');
+        chip.id = 'debug-chip';
+        chip.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:9998;'
+          + 'padding:3px 8px;background:rgba(13,16,32,0.85);color:#8f9bb3;border:1px solid #2a3050;'
+          + 'border-radius:8px;font:11px ui-monospace,monospace;max-width:60vw;overflow:hidden';
+        document.body.appendChild(chip);
+      }
+      chip.textContent = 'route ' + (window.location.hash || '-')
+        + ' · game ' + (views.play.hidden ? 'hidden' : 'len ' + views.play.innerHTML.length);
+    } catch (error) { /* diagnostics must never break the app */ }
   }
 
   function lowerWins() {
@@ -380,26 +563,34 @@
   }
 
   // "Win 2 · Lose 1" on the card, once there is anything to show.
-  function recordHtml(player) {
-    const record = Ranking.record(backend.finishedGames(), player, lowerWins());
+  function recordHtml(player, type) {
+    const games = backend.finishedGames().filter(function (game) {
+      return game.typeId === type.id;
+    });
+    const record = Ranking.record(games, player, type.rules.winner === 'lowest');
     if (record.wins + record.losses === 0) return '';
     return '<span class="rec">Win ' + record.wins + ' &middot; Lose ' + record.losses + '</span>';
   }
 
-  function cardHtml(player, seated) {
+  function cardHtml(player, seated, type) {
     const selected = seated.indexOf(player.id) !== -1;
     const name = escapeHtml(player.name);
-    const record = recordHtml(player);
+    const record = recordHtml(player, type);
     const body = '<span class="disc" aria-hidden="true">' + escapeHtml(player.emoji) + '</span>'
       + (selected ? '<span class="tick" aria-hidden="true">' + icon('check', 13) + '</span>' : '')
       + '<span class="nm">' + name + '</span>'
       + '<span class="st">' + (selected ? 'playing' : (ui.manageMode ? 'not playing' : 'tap to add')) + '</span>'
       + record;
     const classes = 'pcard' + (selected ? ' on' : '') + (record ? ' has-record' : '');
+    const filter = Leaderboard.normalise(ui.rosterFilter || '');
+    const hidden = filter !== ''
+      && Leaderboard.normalise(player.name).indexOf(filter) === -1;
 
     if (!ui.manageMode) {
-      return '<article class="' + classes + '" style="--pc:' + escapeHtml(player.color) + '">'
+      return '<article class="' + classes + '" style="--pc:' + escapeHtml(player.color) + '"'
+        + (hidden ? ' hidden' : '') + '>'
         + '<button type="button" class="pcard-body" data-action="toggle-seat" data-id="' + player.id
+        + '" data-name="' + name + '" data-emoji="' + escapeHtml(player.emoji)
         + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' + body + '</button></article>';
     }
 
@@ -418,23 +609,735 @@
       + escapeHtml(player.color) + '"><span class="pcard-body static">' + body + '</span>' + tools + '</article>';
   }
 
-  function soloHeader() {
-    return '<header class="topbar"><div><h1 class="wordmark">SOLO Scorekeeper</h1>'
-      + '<p class="tagline">' + escapeHtml(tagline()) + '</p></div>'
-      + '<nav class="topbar-links"><a class="btn ghost" href="#/leaderboard">Leaderboard</a>'
-      + '<a class="btn ghost" href="#/rules">Rules</a>'
-      + '<a class="btn ghost" href="#/history">History</a>' + refreshBtn() + '</nav></header>';
+  function libraryHeader() {
+    const table = space ? space.status() : null;
+    return '<header class="topbar library-topbar"><div>'
+      + '<h1 class="wordmark">SCORELOCK</h1>'
+      + '<p class="tagline">' + (table
+        ? escapeHtml(table.name || 'Live table') + ' · ' + codeChip(table.code)
+        : 'Pick a game from the shelf') + '</p></div>'
+      + '<nav class="topbar-links">'
+      + '<a class="btn ghost" href="#/library">Library</a>'
+      + '<a class="btn ghost" href="#/rules">How to play</a>'
+      + '<button type="button" class="btn ghost" data-action="open-join">Join</button>'
+      + refreshBtn() + '</nav></header>';
   }
 
-  function lobbyHeader() {
+  function canLeaveTable(nextLabel) {
+    if (!space) return true;
+    return window.confirm('Leave the live table' + (nextLabel ? ' and open ' + nextLabel : '')
+      + '? The table stays online; you can rejoin with its code.');
+  }
+
+  function openBox(id) {
+    const table = space ? space.status() : null;
+    if (table && table.game !== id && !canLeaveTable('another game')) return;
+    if (table && table.game !== id) leaveLobby();
+    navigate('box/' + id);
+  }
+
+  function newGameDraft() {
+    if (!ui.newGame) {
+      ui.newGame = {
+        name: '', emoji: '🃏', colour: '#f0b429', pattern: 'pips',
+        winner: 'lowest', end: 'manual', limit: '500'
+      };
+    }
+    return ui.newGame;
+  }
+
+  function renderLibrary() {
+    const state = backend.getState();
+    const all = backend.getLibrary();
+    const visible = shelfOrder(all.filter(function (type) { return !type.archived; }));
+    const hidden = all.filter(function (type) { return type.archived; });
+    const active = backend.activeGames()
+      .slice()
+      .sort(function (a, b) { return (b.startedAt || 0) - (a.startedAt || 0); })[0] || null;
+    const table = space ? space.status() : null;
+    const tableType = table ? (space.getType(table.game) || space.getActiveType()) : null;
+    let html = libraryHeader();
+
+    if (table && !table.tableReady) {
+      html += '<section class="hero joining"><p class="label">Joining live table</p>'
+        + codeChip(table.code) + '<p class="hint">Waiting for the table&rsquo;s game&hellip;</p></section>';
+    } else if (table) {
+      html += '<section class="hero"><div>' + coverHtml(tableType, 'hero-cover')
+        + '</div><div class="hero-copy"><p class="label">Live table</p>'
+        + '<h2>' + escapeHtml(tableType ? tableType.name : 'Shared game') + '</h2>'
+        + '<p class="hint">' + codeChip(table.code) + ' · ' + table.online + ' here</p>'
+        + '<button type="button" class="btn primary" data-action="open-box" data-id="'
+        + escapeHtml(table.game) + '">Resume table</button></div></section>';
+    } else if (active) {
+      const type = typeForGame(active);
+      html += '<section class="hero"><div>' + coverHtml(type, 'hero-cover')
+        + '</div><div class="hero-copy"><p class="label">Continue</p>'
+        + '<h2>' + escapeHtml(gameName(active)) + '</h2>'
+        + '<p class="hint">Round ' + (active.rounds.length + 1) + ' · '
+        + escapeHtml(active.seats.map(function (seat) { return seat.name; }).join(' · ')) + '</p>'
+        + '<button type="button" class="btn primary" data-action="resume-game" data-id="'
+        + escapeHtml(active.id) + '">Resume game</button></div></section>';
+    } else {
+      const type = backend.getActiveType();
+      html += '<section class="hero quiet"><div>' + coverHtml(type, 'hero-cover')
+        + '</div><div class="hero-copy"><p class="label">Ready when you are</p>'
+        + '<h2>Open a game to start</h2><p class="hint">Pick any game on the shelf below, or start a table from its page.</p></div></section>';
+    }
+
+    html += '<section class="section"><div class="section-head"><h2>Shelf</h2>'
+      + '<button type="button" class="btn ghost" data-action="open-new-game">Add a game</button></div>'
+      + '<div class="shelf">' + visible.map(function (type) {
+        const count = finishedCountFor(type.id);
+        const live = space && space.status().game === type.id;
+        const playing = backend.activeGames().some(function (game) {
+          return game.typeId === type.id;
+        });
+        return '<button type="button" class="box-card" data-action="open-box" data-id="'
+          + escapeHtml(type.id) + '" aria-label="Open ' + escapeHtml(type.name) + '">'
+          + coverHtml(type)
+          + '<span class="box-chips">' + ruleChips(type) + '</span>'
+          + '<span class="box-meta">' + count + ' finished'
+          + (live ? ' · live' : (playing ? ' · playing' : '')) + '</span></button>';
+      }).join('') + '<button type="button" class="box-card add-box" data-action="open-new-game">'
+      + '<span class="add-face" aria-hidden="true">' + icon('plus', 28) + '</span>'
+      + '<span class="box-meta">Add a game</span></button></div></section>';
+
+    if (hidden.length) {
+      html += '<section class="section"><button type="button" class="btn ghost" data-action="toggle-archived" aria-expanded="'
+        + (ui.showArchived ? 'true' : 'false') + '">' + (ui.showArchived ? 'Hide hidden games' : 'Hidden games (' + hidden.length + ')')
+        + '</button>';
+      if (ui.showArchived) {
+        html += '<ul class="archive-list">' + hidden.map(function (type) {
+          return '<li><span>' + escapeHtml(type.name) + '</span>'
+            + (space ? '' : '<button type="button" class="btn ghost" data-action="restore-type" data-id="'
+              + escapeHtml(type.id) + '">Restore</button>') + '</li>';
+        }).join('') + '</ul>';
+      }
+      html += '</section>';
+    }
+
+    if (ui.lobbyForm === 'join') html += joinSheetHtml();
+    if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
+    return html;
+  }
+
+  function renderFriends() {
+    const people = {};
+    (backend.finishedGames() || []).forEach(function (game) {
+      (game.seats || []).forEach(function (seat) {
+        if (!seat || !seat.name) return;
+        const row = people[seat.name] || {
+          name: seat.name, emoji: seat.emoji, games: 0, last: 0, typeId: 'solo'
+        };
+        row.games += 1;
+        if ((game.startedAt || 0) >= row.last) {
+          row.last = game.startedAt || 0;
+          row.typeId = game.typeId || row.typeId;
+          if (seat.emoji) row.emoji = seat.emoji;
+        }
+        people[seat.name] = row;
+      });
+    });
+    const players = Object.keys(people).map(function (name) { return people[name]; })
+      .sort(function (a, b) { return b.games - a.games || b.last - a.last; });
+    let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">SCORELOCK</h1>'
+      + '<p class="tagline">Friends &mdash; everyone at your tables</p></div></header>';
+    html += '<section class="section"><div class="section-head"><h2>Players</h2></div>';
+    if (!players.length) {
+      html += '<p class="hint">No players yet &mdash; open a game and start a table. Every seat joins your circle.</p>';
+    } else {
+      html += '<div class="player-pool">' + players.map(function (player) {
+        return '<button type="button" class="player-tile" data-action="open-box" data-id="'
+          + escapeHtml(player.typeId) + '">'
+          + '<span class="tile-avatar" aria-hidden="true">' + escapeHtml(player.emoji || '&#127922;') + '</span>'
+          + '<strong class="tile-name">' + escapeHtml(player.name) + '</strong>'
+          + '<span class="tile-stats">' + player.games + ' game' + (player.games === 1 ? '' : 's') + '</span>'
+          + '</button>';
+      }).join('') + '</div>';
+    }
+    html += '</section>';
+    return html;
+  }
+
+  function renderCommunity() {
+    const visible = shelfOrder((backend.getLibrary() || [])
+      .filter(function (type) { return !type.archived; }));
+    const finished = backend.finishedGames() || [];
+    const plays = {};
+    finished.forEach(function (game) {
+      plays[game.typeId] = (plays[game.typeId] || 0) + 1;
+    });
+    const popular = Object.keys(plays).sort(function (a, b) {
+      return plays[b] - plays[a];
+    })[0] || null;
+    let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">SCORELOCK</h1>'
+      + '<p class="tagline">Community &mdash; discover games</p></div></header>';
+    html += '<section class="section"><div class="section-head"><h2>Discover</h2>'
+      + '<button type="button" class="btn ghost" data-action="open-new-game">Add a game</button></div>';
+    if (!visible.length) {
+      html += '<p class="hint">Nothing to discover yet &mdash; add a game from the shelf.</p>';
+    } else {
+      if (finished.length) {
+        html += '<p class="hint">Most played around here: <strong>'
+          + escapeHtml((backend.getType(popular) || { name: '?' }).name)
+          + '</strong> with ' + plays[popular] + ' finished game' + (plays[popular] === 1 ? '' : 's') + '.</p>';
+      }
+      html += '<div class="shelf">' + visible.map(function (type) {
+        const count = finishedCountFor(type.id);
+        return '<button type="button" class="box-card" data-action="open-box" data-id="'
+          + escapeHtml(type.id) + '" aria-label="Open ' + escapeHtml(type.name) + '">'
+          + coverHtml(type)
+          + '<span class="box-chips">' + ruleChips(type) + '</span>'
+          + '<span class="box-meta">' + count + ' finished'
+          + (type.id === popular ? ' &middot; most played' : '') + '</span></button>';
+      }).join('') + '</div>';
+    }
+    html += '</section>';
+    return html;
+  }
+
+  function renderNewGame() {
+    const draft = newGameDraft();
+    let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">New game</h1>'
+      + '<p class="tagline">Make it yours</p></div>'
+      + '<nav class="topbar-links"><a class="btn ghost" href="#/library">Back</a></nav></header>'
+      + '<form id="new-game-form" class="panel new-game">';
+    html += '<p class="label">Presets</p><div class="row">'
+      + (window.Library ? window.Library.PRESETS.map(function (preset) {
+        return '<button type="button" class="btn ghost preset-chip" data-action="new-game-preset" data-preset="'
+          + preset.id + '">' + preset.label + '</button>';
+      }).join('') : '') + '</div>';
+    html += '<label class="label" for="game-name">Name</label>'
+      + '<input id="game-name" class="input" maxlength="24" required value="' + escapeHtml(draft.name) + '">';
+    html += '<p class="label">Emoji</p><div class="emoji-grid" role="group" aria-label="Game emoji">'
+      + EMOJI.map(function (face) {
+        return '<button type="button" class="emoji" data-action="new-game-emoji" data-emoji="' + face
+          + '" aria-pressed="' + (face === draft.emoji ? 'true' : 'false') + '">' + face + '</button>';
+      }).join('') + '</div>';
+    html += '<p class="label">Colour</p><div class="swatches">'
+      + (window.Library ? window.Library.PALETTE.map(function (colour) {
+        return '<button type="button" class="swatch" style="--swatch:' + colour
+          + '" data-action="new-game-colour" data-colour="' + colour
+          + '" aria-pressed="' + (colour === draft.colour ? 'true' : 'false') + '" aria-label="Colour ' + colour + '"></button>';
+      }).join('') : '') + '</div>';
+    html += '<p class="label">Cover pattern</p><div class="patterns">'
+      + (window.Library ? window.Library.PATTERNS.map(function (pattern) {
+        return '<button type="button" class="pattern-chip cover-' + pattern
+          + '" data-action="new-game-pattern" data-pattern="' + pattern
+          + '" aria-pressed="' + (pattern === draft.pattern ? 'true' : 'false') + '"><span>' + pattern + '</span></button>';
+      }).join('') : '') + '</div>';
+    html += '<fieldset class="rules-field"><legend>Winner</legend>'
+      + '<label><input type="radio" name="winner" value="lowest"'
+      + (draft.winner === 'lowest' ? ' checked' : '') + '> Lowest total wins</label>'
+      + '<label><input type="radio" name="winner" value="highest"'
+      + (draft.winner === 'highest' ? ' checked' : '') + '> Highest total wins</label></fieldset>';
+    html += '<fieldset class="rules-field"><legend>End</legend>'
+      + '<label><input type="radio" name="end" value="manual"'
+      + (draft.end === 'manual' ? ' checked' : '') + '> Manual</label>'
+      + '<label><input type="radio" name="end" value="limit"'
+      + (draft.end === 'limit' ? ' checked' : '') + '> At a score limit</label>'
+      + '<label for="game-limit">Limit</label>'
+      + '<input id="game-limit" class="input" inputmode="numeric" pattern="[0-9]*" value="'
+      + escapeHtml(draft.limit) + '"' + (draft.end === 'limit' ? '' : ' disabled') + '></label></fieldset>';
+    if (ui.newGameError) html += '<p class="error">' + escapeHtml(ui.newGameError) + '</p>';
+    html += '<div class="row"><button type="submit" class="btn primary"'
+      + (ui.newGameBusy ? ' disabled aria-busy="true"' : '') + '>Save game</button>'
+      + '<a class="btn ghost" href="#/library">Cancel</a></div></form>';
+    return html;
+  }
+
+  function renderBox(id, tab) {
+    const type = backend.getType(id);
+    if (!type) { navigate('library'); return ''; }
+    if (!space && !type.archived && backend.getState().activeType !== type.id) {
+      backend.setActiveType(type.id);
+    }
+    const effectiveTab = ['table', 'hall', 'log', 'rules'].indexOf(tab) === -1 ? 'table' : tab;
+    const live = space && space.status().game === type.id && space.status().tableReady;
+    const active = backend.activeGames().filter(function (game) {
+      return game.typeId === type.id;
+    });
+    let html = '<header class="topbar box-topbar"><div>'
+      + '<a class="btn ghost" href="#/library">Library</a>'
+      + '<h1 class="wordmark">' + escapeHtml(type.name) + '</h1></div>'
+      + '<nav class="topbar-links">'
+      + (live ? '<span class="live-badge">Live</span>' : '')
+      + refreshBtn()
+      + '<a class="btn ghost" href="#/box/' + escapeHtml(type.id) + '/rules" aria-label="House rules">House rules</a>'
+      + '</nav></header>';
+
+    html += '<section class="box-hero">' + coverHtml(type, 'box-cover')
+      + '<div class="box-copy"><h2>' + escapeHtml(type.name) + '</h2>'
+      + '<p class="box-chips">' + ruleChips(type) + '</p>'
+      + (type.archived
+        ? '<p class="hint">This game is archived. Its Hall and Log are read-only.</p>'
+          + '<button type="button" class="btn primary" data-action="restore-type" data-id="'
+          + escapeHtml(type.id) + '">Restore game</button>'
+        : '<div class="row"><button type="button" class="btn primary" data-action="box-play">'
+          + (active.length ? 'Resume game' : 'Start local game') + '</button>'
+          + (type.builtin && !live && adapter
+            ? '<button type="button" class="btn ghost" data-action="start-live" data-id="'
+              + escapeHtml(type.id) + '">Start online table</button>'
+            : '')
+          + '</div>'
+          + (active.length ? '' : '<p class="hint">Local games still sync their results to the web, so they count on your leaderboard.</p>'))
+      + '</div></section>';
+
+    html += '<nav class="tabs" aria-label="Game sections">'
+      + tabLink(type, 'table', 'Table', effectiveTab)
+      + tabLink(type, 'hall', 'Hall of Fame', effectiveTab)
+      + tabLink(type, 'log', 'Log', effectiveTab)
+      + '</nav>';
+
+    if (effectiveTab === 'table') html += boxTableHtml(type, active, live);
+    if (effectiveTab === 'hall') html += boxHallHtml(type);
+    if (effectiveTab === 'log') html += boxLogHtml(type);
+    if (effectiveTab === 'rules') html += houseRulesHtml(type);
+    return html;
+  }
+
+  function tabLink(type, tab, label, current) {
+    const href = '#/box/' + type.id + (tab === 'table' ? '' : '/' + tab);
+    return '<a class="tab" href="' + href + '"'
+      + (tab === current ? ' aria-current="page"' : '') + '>' + label + '</a>';
+  }
+
+  function liveTableHtml(type) {
     const status = space.status();
-    return '<header class="topbar"><div>'
-      + '<h1 class="wordmark">' + escapeHtml(status.name || 'Shared lobby') + '</h1>'
-      + '<p class="tagline">' + codeChip(status.code)
-      + '<span class="presence">' + status.online + ' here</span></p></div>'
-      + '<nav class="topbar-links"><a class="btn ghost" href="#/leaderboard">Leaderboard</a>'
-      + '<a class="btn ghost" href="#/rules">Rules</a>'
-      + '<a class="btn ghost" href="#/history">History</a>' + refreshBtn() + '</nav></header>';
+    const state = space.getState();
+    const problem = status.problem
+      ? '<p class="error">' + escapeHtml(status.problem) + '</p>' : '';
+    const offline = navigator.onLine === false
+      ? '<p class="error">This phone is offline &mdash; changes stay here until the connection comes back.</p>'
+      : '';
+    let html = '<p class="hint">Everyone with the code ' + codeChip(status.code)
+      + ' sees this table. ' + status.online + ' here.</p>' + problem + offline;
+    html += '<div class="roster">' + state.players.map(function (player) {
+      return cardHtml(player, state.selection, type);
+    }).join('') + '<button type="button" class="pcard add-card" data-action="open-add">'
+      + '<span class="add-face" aria-hidden="true">' + icon('plus', 20) + '</span>'
+      + '<span class="nm">Add player</span></button></div>';
+    if (ui.addPanelOpen) html += addPanelHtml();
+    if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
+    html += '<div class="row"><button type="button" class="btn primary" data-action="start-game"'
+      + (state.selection.length ? '' : ' disabled') + '>Start online game</button>'
+      + '<button type="button" class="btn ghost" data-action="rename-lobby">Rename table</button>'
+      + '</div>';
+    if (ui.lobbyNote) html += '<p class="hint lobby-note" role="status">' + escapeHtml(ui.lobbyNote) + '</p>';
+    return html;
+  }
+
+  function boxTableHtml(type, active, live) {
+    if (type.archived) {
+      return '<section class="panel"><p class="hint">Restore this game to play it again.</p></section>';
+    }
+    if (live) {
+      return '<section class="panel"><p class="label">Live table</p>'
+        + liveTableHtml(type)
+        + '<p class="hint">This table&rsquo;s rules are locked: ' + escapeHtml(ruleLabel(type.rules)) + '.</p>'
+        + '<button type="button" class="btn ghost" data-action="leave-lobby">Leave table</button></section>';
+    }
+
+    const state = backend.getState();
+    const boardInfo = boardData();
+    const total = Leaderboard.mergePlayers(
+      state.players,
+      boardInfo.pool || [],
+      boardInfo.results || [],
+      tombstones()
+    );
+    // Manage mode edits the device roster: pool-only names have no Edit/Delete
+    // that could work, so they do not appear there.
+    const merged = ui.manageMode ? total.filter(function (p) { return !p.pooled; }) : total;
+    let html = '<section class="panel"><div class="section-head"><h2>Players</h2>'
+      + '<button type="button" class="btn ghost" data-action="toggle-manage" aria-pressed="'
+      + (ui.manageMode ? 'true' : 'false') + '">' + (ui.manageMode ? 'Done' : 'Edit players') + '</button></div>';
+    if (!state.players.length && merged.length && !ui.manageMode) {
+      html += '<p class="hint">Everyone from your tables is on the list. Tap a name and they are added.</p>';
+    }
+    if (merged.length > 8 && !ui.manageMode) {
+      html += '<input type="search" id="roster-search" class="input roster-search" placeholder="Find a player"'
+        + ' autocomplete="off" value="' + escapeHtml(ui.rosterFilter || '') + '"'
+        + ' aria-label="Filter the player list">';
+    }
+    html += '<div class="roster">' + merged.map(function (player) {
+      return cardHtml(player, state.selection, type);
+    }).join('') + '<button type="button" class="pcard add-card" data-action="open-add">'
+      + '<span class="add-face" aria-hidden="true">' + icon('plus', 20) + '</span>'
+      + '<span class="nm">Add player</span></button></div></section>';
+
+    if (ui.addPanelOpen) html += addPanelHtml();
+    if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
+
+    html += '<div class="footer"><button class="btn primary big" data-action="start-game"'
+      + (state.selection.length ? '' : ' disabled') + '>Start online game</button>';
+    if (!state.selection.length) html += '<p class="hint">Tap the players who are playing.</p>';
+    html += '</div>';
+
+    if (active.length) {
+      html += '<section class="section"><h2>Playing now</h2><ul class="games">'
+        + active.map(function (game) {
+          return '<li><button class="game-row" data-action="resume-game" data-id="'
+            + escapeHtml(game.id) + '"><span class="label">Round ' + (game.rounds.length + 1)
+            + '</span><span class="game-winner">'
+            + escapeHtml(game.seats.map(function (seat) { return seat.name; }).join(' · '))
+            + '</span><span class="game-totals">' + game.rounds.length + ' round'
+            + (game.rounds.length === 1 ? '' : 's') + '</span></button></li>';
+        }).join('') + '</ul></section>';
+    }
+    html += '<p class="hint"><button type="button" class="btn ghost" data-action="open-join">Join a live table</button></p>';
+    return html;
+  }
+
+  // Names removed from the Players page. Blocks automatic resurrection from
+  // old results; adding a same-named player on purpose is always allowed.
+  function tombstones() {
+    try {
+      const raw = window.localStorage.getItem('noting-more.removed-players');
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list.filter(function (n) { return typeof n === 'string'; }) : [];
+    } catch (error) { return []; }
+  }
+  function entomb(name) {
+    const keyish = Leaderboard.normalise(name);
+    if (!keyish) return;
+    try {
+      const list = tombstones();
+      if (list.indexOf(keyish) === -1) list.push(keyish);
+      while (list.length > 200) list.shift();
+      window.localStorage.setItem('noting-more.removed-players', JSON.stringify(list));
+    } catch (error) { /* storage full/blocked: removal stays session-only */ }
+  }
+  // Deliberately adding a name on purpose is not resurrection: clear the tomb.
+  function untomb(name) {
+    const keyish = Leaderboard.normalise(name);
+    if (!keyish) return;
+    try {
+      const list = tombstones();
+      if (list.indexOf(keyish) === -1) return;
+      window.localStorage.setItem('noting-more.removed-players',
+        JSON.stringify(list.filter(function (n) { return n !== keyish; })));
+    } catch (error) { /* best effort */ }
+  }
+  // Write a pool profile straight through (sync.register remembers a name as
+  // registered and would quietly skip a re-added player's fresh profile).
+  function publishPlayer(name, emoji) {
+    const key = Leaderboard.keyFor(name);
+    if (!adapter || !key) return;
+    const type = local.getActiveType();
+    adapter.putPoolPlayer(key, {
+      name: String(name === null || name === undefined ? '' : name)
+        .replace(/\s+/g, ' ').trim(),
+      emoji: String(emoji || ''),
+      game: type ? type.id : 'solo'
+    }).catch(function () {});
+  }
+
+  // Cloud board when it is loaded; otherwise last locally saved results, so the
+  // pages are never stuck on "Loading the board…" (a muted note says which).
+  function boardData() {
+    if (ui.board && ((ui.board.pool && ui.board.pool.length)
+      || (ui.board.results && ui.board.results.length))) {
+      return { pool: ui.board.pool || [], results: ui.board.results || [], fallback: false };
+    }
+    const results = [];
+    backend.finishedGames().forEach(function (game) {
+      const result = Leaderboard.resultFor(game, {
+        mode: 'solo',
+        origin: '',
+        lowerWins: typeof game.lowerWins === 'boolean' ? game.lowerWins : true
+      });
+      if (result) results.push(result);
+    });
+    return { pool: [], results: results, fallback: true };
+  }
+
+  function leaderboardBoards(data) {
+    const boards = [];
+    backend.getLibrary().forEach(function (type) {
+      const rows = Leaderboard.aggregate(data.pool, data.results, type.id);
+      const games = data.results.filter(function (result) {
+        return Leaderboard.gameOf(result) === type.id;
+      }).length;
+      if (type.archived && !games) return;
+      boards.push({ type: type, rows: rows, games: games });
+    });
+    return boards;
+  }
+
+  function leaderboardBoardHtml(board) {
+    const rows = board.rows;
+    const ranked = rows.filter(function (row) { return row.ranked; });
+    const learning = rows.filter(function (row) { return !row.ranked && row.games > 0; });
+    const idle = rows.filter(function (row) { return row.games === 0; });
+    const name = escapeHtml(board.type.name);
+    return '<section class="panel lb-card"><header class="lb-head">'
+      + '<a class="lb-cover" href="#/leaderboard/' + escapeHtml(board.type.id)
+      + '" aria-label="Show only the leaderboard for ' + name + '">'
+      + coverHtml(board.type, 'lb-cover-art') + '</a>'
+      + '<div class="lb-title"><h2>' + name + '</h2><p class="board-meta">'
+      + rows.length + ' player' + (rows.length === 1 ? '' : 's')
+      + ' &middot; ' + board.games + ' game' + (board.games === 1 ? '' : 's') + '</p></div></header>'
+      + (board.type.archived ? '<p class="board-note muted">Archived &mdash; read-only.</p>' : '')
+      + boardGroup('Ranked', ranked, 'Win % decides the order. Three games to qualify.')
+      + boardGroup('Not ranked yet', learning, 'Three games to qualify.')
+      + boardGroup('No games yet', idle, '')
+      + (rows.length ? '' : '<p class="hint">No players yet. Play a table from this game and it appears here.</p>')
+      + '</section>';
+  }
+
+  function renderLeaderboard(gameId) {
+    const data = boardData();
+    const boards = leaderboardBoards(data);
+    const wanted = boards.filter(function (board) { return board.type.id === gameId; })[0] || null;
+    let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">Leaderboard</h1>'
+      + '<p class="tagline">' + (wanted
+        ? escapeHtml(wanted.type.name) + ' standings'
+        : 'Every game, ranked') + '</p></div>'
+      + '<nav class="topbar-links"><a class="btn ghost" href="#/new-game">Add a game</a></nav></header>';
+    if (wanted) {
+      html += '<div class="lb-filters"><a class="btn ghost" href="#/leaderboard">All games</a></div>';
+    } else if (!boards.length) {
+      html += '<div class="empty-state"><p>No games to rank yet.</p>'
+        + '<p class="hint">Add a game and play a table &mdash; standings appear here.</p></div>';
+      return html;
+    }
+    if (data.fallback) html += '<p class="muted">Showing your saved local results until the online board loads.</p>';
+    html += (wanted ? leaderboardBoardHtml(wanted)
+      : boards.map(leaderboardBoardHtml).join(''));
+    return html;
+  }
+
+  function playersRowHtml(row) {
+    const record = row.games
+      ? row.games + ' game' + (row.games === 1 ? '' : 's') + ' &middot; ' + row.wins + ' W'
+      : 'No games yet';
+    const pct = row.games ? '<span class="board-pct">' + Leaderboard.winPercent(row) + '%</span>' : '';
+    const fav = row.favourite
+      ? '<span class="pr-fav">Mostly ' + escapeHtml(row.favourite.name) + '</span>'
+      : '';
+    return '<li class="pr-row">'
+      + '<span class="disc" style="--pc:' + escapeHtml(row.color) + '" aria-hidden="true">'
+      + escapeHtml(row.emoji || '') + '</span>'
+      + '<span class="pr-who"><span class="nm">' + escapeHtml(row.name) + '</span>'
+      + '<span class="board-record">' + record + '</span></span>'
+      + '<span class="pr-den">' + pct + fav + '</span>'
+      + '<button type="button" class="btn ghost rm" data-action="remove-person"'
+      + ' data-key="' + escapeHtml(row.key) + '" data-name="' + escapeHtml(row.name) + '"'
+      + ' aria-label="Remove ' + escapeHtml(row.name) + '">Remove</button></li>';
+  }
+
+  function renderPlayers() {
+    const data = boardData();
+    const dead = tombstones();
+    const alive = function (name) { return dead.indexOf(Leaderboard.normalise(name)) === -1; };
+    const pool = (data.pool || []).filter(function (p) { return p && p.name && alive(p.name); });
+    // Trim dead players out of each result's entries instead of dropping the
+    // whole result — game counts for co-players must not change.
+    const results = (data.results || []).map(function (result) {
+      if (!result || !Array.isArray(result.players)) return result;
+      return Object.assign({}, result, {
+        players: result.players.filter(function (p) { return !p || !p.name || alive(p.name); })
+      });
+    }).filter(function (result) {
+      return result && Array.isArray(result.players) && result.players.length > 0;
+    });
+    const rows = Leaderboard.allPlayers(pool, results);
+    let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">Players</h1>'
+      + '<p class="tagline">Everyone from your tables</p></div>'
+      + '<nav class="topbar-links"><button type="button" class="btn primary" data-action="open-add">Add player</button>'
+      + '<a class="btn ghost" href="#/leaderboard">Leaderboard</a></nav></header>';
+    if (ui.boardLoadError) html += '<p class="error">' + escapeHtml(ui.boardLoadError) + '</p>';
+    if (ui.boardNotice) html += '<p class="muted" role="status">' + escapeHtml(ui.boardNotice) + '</p>';
+    if (rows.length === 0) {
+      html += '<div class="empty-state"><p>No players yet.</p>'
+        + '<p class="hint">Add one here, or play a table &mdash; everyone who joins shows up here.</p></div>';
+      if (ui.addPanelOpen) html += addPanelHtml();
+      if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
+      return html;
+    }
+    if (data.fallback) html += '<p class="muted">Showing players from your saved local results until the online board loads.</p>';
+    html += '<ul class="pr-list">' + rows.map(playersRowHtml).join('') + '</ul>'
+      + '<p class="board-privacy">A name is the player. Every table adds to the same roster.</p>'
+      + '<p class="muted">Removing a player takes them off your tables here. Their past results stay on the leaderboard.</p>';
+    if (ui.addPanelOpen) html += addPanelHtml();
+    if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
+    return html;
+  }
+
+  function boxHallHtml(type) {
+    const board = ui.board;
+    const pool = board && Array.isArray(board.pool) ? board.pool : [];
+    const results = board && Array.isArray(board.results) ? board.results : [];
+    const rows = board ? Leaderboard.aggregate(pool, results, type.id) : [];
+    const ranked = rows.filter(function (row) { return row.ranked; });
+    const learning = rows.filter(function (row) { return !row.ranked && row.games > 0; });
+    const idle = rows.filter(function (row) { return row.games === 0; });
+    const games = results.filter(function (result) {
+      return Leaderboard.gameOf(result) === type.id;
+    }).length;
+    const pending = sync.pending();
+    return '<section class="panel board-panel"><div class="board-head"><h2>'
+      + escapeHtml(type.name) + ' Hall of Fame</h2>'
+      + '<p class="board-meta">' + rows.length + ' player' + (rows.length === 1 ? '' : 's')
+      + ' &middot; ' + games + ' game' + (games === 1 ? '' : 's') + '</p></div>'
+      + (ui.boardLoadError ? '<p class="error">' + escapeHtml(ui.boardLoadError) + '</p>' : '')
+      + (board && board.stale ? '<p class="muted">Showing the last saved board.</p>' : '')
+      + (pending ? '<p class="muted">' + pending + ' change' + (pending === 1 ? '' : 's')
+        + ' waiting to sync.</p>' : '')
+      + (board ? '' : '<p class="muted">Loading the board&hellip;</p>')
+      + (board && !rows.length
+        ? '<p class="muted">No players yet. Register the first one below.</p>' : '')
+      + boardGroup('Ranked', ranked, 'Win % decides the order. Three games to qualify.')
+      + boardGroup('Not ranked yet', learning, 'Three games to qualify.')
+      + boardGroup('No games yet', idle, '')
+      + boardRegisterHtml(type.id)
+      + '<p class="board-privacy">Per-game record. A name is the player.</p></section>';
+  }
+
+  function boxLogHtml(type) {
+    const games = backend.finishedGames().filter(function (game) {
+      return game.typeId === type.id;
+    });
+    if (!games.length) {
+      return '<div class="empty-state"><p>No matches yet.</p>'
+        + '<p class="hint">Play a game and it will show up here.</p></div>';
+    }
+    return '<ul class="games log-list">' + games.map(function (game) {
+      const ranked = Ranking.rank(game, Ranking.directionFor(game, true));
+      const winner = ranked.filter(function (entry) { return entry.isWinner; })
+        .map(function (entry) { return entry.seat.name + ' ' + entry.total; }).join(' & ');
+      const others = ranked.map(function (entry) {
+        return escapeHtml(entry.seat.name) + ' ' + entry.total;
+      }).join(' · ');
+      return '<li><button class="game-row" data-action="open-game" data-id="' + game.id + '">'
+        + '<span class="label">' + escapeHtml(formatDate(game.startedAt)) + '</span>'
+        + '<span class="game-winner">🏆 ' + escapeHtml(winner) + '</span>'
+        + '<span class="game-totals">' + others + ' · ' + escapeHtml(ruleLabel(game.rules)) + '</span>'
+        + '</button></li>';
+    }).join('') + '</ul>';
+  }
+
+  function joinSheetHtml() {
+    const joining = ui.busy === 'join';
+    return '<section class="panel join-sheet"><p class="label">Join a live table</p>'
+      + '<form id="join-lobby-form">'
+      + '<label class="label" for="lobby-code">Code</label>'
+      + '<input id="lobby-code" class="input" maxlength="9" autocomplete="off"'
+      + ' autocapitalize="characters" spellcheck="false" placeholder="ABCD 2345" value="'
+      + escapeHtml(ui.lobbyCode) + '">'
+      + '<div class="row"><button type="submit" class="btn primary"'
+      + (joining ? ' disabled aria-busy="true"' : '') + '>'
+      + (joining ? 'Joining&hellip;' : 'Join table') + '</button>'
+      + '<button type="button" class="btn ghost" data-action="close-lobby-form">Cancel</button></div>'
+      + '</form></section>';
+  }
+
+  function houseDraft(type) {
+    if (!ui.houseDraft || ui.houseTypeId !== type.id) {
+      ui.houseTypeId = type.id;
+      ui.houseDraft = {
+        name: type.name, emoji: type.emoji, colour: type.colour, pattern: type.pattern,
+        winner: type.rules.winner,
+        end: type.rules.end.type,
+        limit: type.rules.end.type === 'limit' ? String(type.rules.end.limit) : '500'
+      };
+    }
+    return ui.houseDraft;
+  }
+
+  function houseRulesHtml(type) {
+    const draft = houseDraft(type);
+    const hasActive = backend.activeGames().some(function (game) {
+      return game.typeId === type.id;
+    });
+    const hasLive = space && space.status().game === type.id;
+    const locked = type.archived || hasLive;
+    let html = '<section class="panel house-rules"><h2>House rules</h2>';
+    if (type.archived) html += '<p class="hint">Archived games are read-only. Restore to edit.</p>';
+    if (hasLive) html += '<p class="hint">A live table keeps the rules it started with. Leave the table to change them.</p>';
+    html += '<label class="label" for="house-name">Name</label>'
+      + '<input id="house-name" class="input" maxlength="24" value="' + escapeHtml(draft.name) + '"'
+      + (locked ? ' disabled' : '') + '>';
+    html += '<p class="label" style="margin-top:0.9rem">Emoji</p><div class="emoji-grid">'
+      + EMOJI.map(function (face) {
+        return '<button type="button" class="emoji" data-action="house-emoji" data-emoji="' + face
+          + '" aria-pressed="' + (face === draft.emoji ? 'true' : 'false') + '"'
+          + (locked ? ' disabled' : '') + '>' + face + '</button>';
+      }).join('') + '</div>';
+    html += '<p class="label" style="margin-top:0.9rem">Colour</p><div class="swatches">'
+      + Library.PALETTE.map(function (colour) {
+        return '<button type="button" class="swatch" style="--swatch:' + colour
+          + '" data-action="house-colour" data-colour="' + colour + '" aria-pressed="'
+          + (colour === draft.colour ? 'true' : 'false') + '"' + (locked ? ' disabled' : '') + '></button>';
+      }).join('') + '</div>';
+    html += '<p class="label" style="margin-top:0.9rem">Cover pattern</p><div class="patterns">'
+      + Library.PATTERNS.map(function (pattern) {
+        return '<button type="button" class="pattern-chip cover-' + pattern
+          + '" data-action="house-pattern" data-pattern="' + pattern + '" aria-pressed="'
+          + (pattern === draft.pattern ? 'true' : 'false') + '"' + (locked ? ' disabled' : '') + '>'
+          + pattern + '</button>';
+      }).join('') + '</div>';
+    html += '<fieldset class="rules-field"><legend>Winner</legend>'
+      + '<label><input type="radio" name="house-winner" value="lowest"'
+      + (draft.winner === 'lowest' ? ' checked' : '') + (locked ? ' disabled' : '') + '> Lowest</label>'
+      + '<label><input type="radio" name="house-winner" value="highest"'
+      + (draft.winner === 'highest' ? ' checked' : '') + (locked ? ' disabled' : '') + '> Highest</label></fieldset>';
+    html += '<fieldset class="rules-field"><legend>End</legend>'
+      + '<label><input type="radio" name="house-end" value="manual"'
+      + (draft.end === 'manual' ? ' checked' : '') + (locked ? ' disabled' : '') + '> Manual</label>'
+      + '<label><input type="radio" name="house-end" value="limit"'
+      + (draft.end === 'limit' ? ' checked' : '') + (locked ? ' disabled' : '') + '> Limit</label>'
+      + '<label for="house-limit">Limit</label><input id="house-limit" class="input" inputmode="numeric" value="'
+      + escapeHtml(draft.limit) + '"' + (draft.end === 'limit' && !locked ? '' : ' disabled') + '></fieldset>';
+    if (ui.houseError) html += '<p class="error">' + escapeHtml(ui.houseError) + '</p>';
+    if (ui.houseNotice) html += '<p class="muted">' + escapeHtml(ui.houseNotice) + '</p>';
+    html += '<p class="hint">Changes apply to future matches. '
+      + (hasActive || hasLive ? 'Active matches and live tables keep the rules they started with.' : '')
+      + '</p>';
+    if (!locked) {
+      html += '<div class="row"><button type="button" class="btn primary" data-action="save-house">Save rules</button>'
+        + (type.builtin
+          ? '<button type="button" class="btn ghost" data-action="reset-type" data-id="' + type.id + '">Reset to defaults</button>'
+          : '<button type="button" class="btn danger" data-action="archive-type" data-id="' + type.id
+            + '"' + (hasActive ? ' disabled' : '') + '>Archive game</button>')
+        + '</div>';
+    }
+    html += '</section>';
+    return html;
+  }
+
+  function saveHouseRules() {
+    const type = backend.getType(currentRoute().id);
+    const draft = houseDraft(type);
+    ui.houseError = '';
+    try {
+      backend.updateType(type.id, {
+        name: draft.name,
+        emoji: draft.emoji,
+        colour: draft.colour,
+        pattern: draft.pattern,
+        rules: {
+          winner: draft.winner,
+          end: draft.end === 'limit'
+            ? { type: 'limit', limit: Number(draft.limit) }
+            : { type: 'manual' }
+        }
+      });
+      ui.houseDraft = null;
+      ui.houseNotice = 'House rules saved. They apply to future matches.';
+      render();
+    } catch (error) {
+      ui.houseError = error.message;
+      render();
+    }
+  }
+
+  function openNewGame() {
+    if (!canLeaveTable('a new game')) return;
+    if (space) leaveLobby();
+    ui.newGame = null;
+    navigate('new-game');
   }
 
   // The code is the whole invitation, so tapping it copies it ready to send.
@@ -517,11 +1420,18 @@
     sync.fetchBoard().then(function (board) {
       ui.board = board;
       ui.boardLoadError = '';
-      if (currentRoute().name === 'leaderboard') render();
+      repaintBoardRoute();
     }, function (error) {
       ui.boardLoadError = (error && error.message) || 'The board could not be loaded.';
-      if (currentRoute().name === 'leaderboard') render();
+      repaintBoardRoute();
     });
+  }
+
+  // The board is rendered by several pages now; re-render whichever is showing.
+  function repaintBoardRoute() {
+    const route = currentRoute();
+    if (route.name === 'box' && (!route.tab || route.tab === 'table' || route.tab === 'hall')) render();
+    if (route.name === 'leaderboard' || route.name === 'players') render();
   }
 
   function boardGroup(title, list, note) {
@@ -554,8 +1464,8 @@
       + '</li>';
   }
 
-  function boardRegisterHtml() {
-    return '<form id="board-register" class="board-register">'
+  function boardRegisterHtml(gameId) {
+    return '<form id="board-register" class="board-register" data-game="' + escapeHtml(gameId || '') + '">'
       + '<h3>Register a player</h3>'
       + '<label class="label" for="board-name">Name</label>'
       + '<input id="board-name" class="input" maxlength="20" autocomplete="off" required'
@@ -576,7 +1486,7 @@
       + '</form>';
   }
 
-  function registerBoardPlayer(name) {
+  function registerBoardPlayer(name, gameId) {
     if (ui.boardBusy) return;
     const display = String(name || '').replace(/\s+/g, ' ').trim();
     ui.boardName = name;
@@ -589,7 +1499,7 @@
     ui.boardError = '';
     ui.boardNotice = '';
     render();
-    sync.register(display, ui.boardEmoji, { queue: false }).then(function () {
+    sync.register(display, ui.boardEmoji, { queue: false, game: gameId }).then(function () {
       ui.boardBusy = false;
       ui.boardName = '';
       ui.boardEmoji = EMOJI[0];
@@ -606,231 +1516,6 @@
     });
   }
 
-  function renderLeaderboard() {
-    const board = ui.board;
-    const pool = board && Array.isArray(board.pool) ? board.pool : [];
-    const results = board && Array.isArray(board.results) ? board.results : [];
-    const rows = board ? Leaderboard.aggregate(pool, results) : [];
-    const ranked = rows.filter(function (row) { return row.ranked; });
-    const learning = rows.filter(function (row) { return !row.ranked && row.games > 0; });
-    const idle = rows.filter(function (row) { return row.games === 0; });
-    const games = results.length;
-    const pending = sync.pending();
-    return '<header class="topbar"><div><h1 class="wordmark">Leaderboard</h1>'
-      + '<p class="tagline">Every game, every player</p></div>'
-      + '<nav class="topbar-links"><a class="btn ghost" href="#/home">Back</a>'
-      + '<a class="btn ghost" href="#/rules">Rules</a></nav></header>'
-      + '<section class="panel board-panel">'
-      + '<div class="board-head"><h2>Who is on top</h2>'
-      + '<p class="board-meta">' + rows.length + ' player' + (rows.length === 1 ? '' : 's')
-      + ' &middot; ' + games + ' game' + (games === 1 ? '' : 's') + '</p></div>'
-      + (ui.boardLoadError ? '<p class="error">' + escapeHtml(ui.boardLoadError) + '</p>' : '')
-      + (board && board.stale ? '<p class="muted">Showing the last saved board.</p>' : '')
-      + (pending ? '<p class="muted">' + pending + ' change' + (pending === 1 ? '' : 's')
-        + ' waiting to sync.</p>' : '')
-      + (board ? '' : '<p class="muted">Loading the board&hellip;</p>')
-      + (board && !rows.length
-        ? '<p class="muted">No players yet. Register the first one below.</p>' : '')
-      + boardGroup('Ranked', ranked, 'Win % decides the order. Three games to qualify.')
-      + boardGroup('Not ranked yet', learning, 'Three games to qualify.')
-      + boardGroup('No games yet', idle, '')
-      + boardRegisterHtml()
-      + '<p class="board-privacy">Visible to everyone using this app. A name is the player.</p>'
-      + '</section>';
-  }
-
-  function renderHome() {
-    const state = backend.getState();
-    const seated = state.selection;
-    let html = '';
-
-    html += inLobby() ? lobbyHeader() : soloHeader();
-
-    const lower = lowerWins();
-    html += '<section class="panel"><p class="label">Scoring</p>'
-      + '<div class="segmented" role="group" aria-label="Scoring direction">'
-      + '<button type="button" data-action="set-scoring" data-lower="true" aria-pressed="'
-      + (lower ? 'true' : 'false') + '">Fewest points wins</button>'
-      + '<button type="button" data-action="set-scoring" data-lower="false" aria-pressed="'
-      + (lower ? 'false' : 'true') + '">Most points wins</button></div>'
-      + '<p class="hint">' + (lower
-        ? 'House rules: the lowest total is crowned Winner.'
-        : 'Standard UNO/SOLO: the highest total is crowned Winner.') + '</p></section>';
-
-    const active = backend.activeGames();
-    if (active.length > 0) {
-      html += '<section class="section"><div class="section-head"><h2>Playing now</h2></div>'
-        + '<ul class="games">' + active.map(function (game) {
-          const names = game.seats.map(function (seat) { return seat.name; }).join(' · ');
-          const rounds = game.rounds.length;
-          return '<li><button class="game-row" data-action="resume-game" data-id="' + game.id + '">'
-            + '<span class="label">Round ' + (rounds + 1) + '</span>'
-            + '<span class="game-winner">' + escapeHtml(names) + '</span>'
-            + '<span class="game-totals">' + rounds + ' round' + (rounds === 1 ? '' : 's') + ' played</span>'
-            + '</button></li>';
-        }).join('') + '</ul></section>';
-    }
-
-    html += '<section class="section"><div class="section-head"><h2>Players</h2>';
-    if (state.players.length > 0) {
-      html += '<button type="button" class="btn ghost" data-action="toggle-manage" aria-pressed="'
-        + (ui.manageMode ? 'true' : 'false') + '">' + (ui.manageMode ? 'Done' : 'Edit players') + '</button>';
-    }
-    html += '</div>';
-    if (state.players.length === 0) {
-      html += '<p class="hint">No players yet &mdash; add the first one.</p>';
-    }
-    html += '<div class="roster">' + state.players.map(function (player) {
-      return cardHtml(player, seated);
-    }).join('') + '<button type="button" class="pcard add-card" data-action="open-add">'
-      + '<span class="add-face" aria-hidden="true">' + icon('plus', 20) + '</span>'
-      + '<span class="nm">Add player</span></button></div></section>';
-
-    if (ui.addPanelOpen) html += addPanelHtml();
-    if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
-
-    html += playTogetherHtml();
-
-    const ready = state.selection.length > 0;
-    html += '<div class="footer"><button class="btn primary big" data-action="start-game"'
-      + (ready ? '' : ' disabled') + '>Start game</button>';
-    if (!ready) html += '<p class="hint">Tap the players who are playing tonight.</p>';
-    html += '</div>';
-    return html;
-  }
-
-  function renderGame(gameId) {
-    const game = gameFor(gameId);
-    if (!game) { navigate('home'); return ''; }
-    // A paired lobby re-renders on every snapshot, so whatever is half-typed has
-    // to be carried across renders or the other phone would wipe it.
-    if (ui.roundGameId !== gameId) { ui.roundGameId = gameId; ui.roundDraft = {}; }
-    const totals = Ranking.totalsFor(game);
-    const played = game.rounds.length > 0;
-    const leader = played
-      ? (lowerWins() ? Math.min.apply(null, totals) : Math.max.apply(null, totals))
-      : null;
-
-    let html = '<header class="topbar"><div><p class="label">Round ' + (game.rounds.length + 1)
-      + '</p><h1 class="wordmark">SOLO Scorekeeper</h1></div>'
-      + '<nav class="topbar-links">' + refreshBtn()
-      + '<a class="btn ghost" href="#/home">Leave</a></nav></header>';
-
-    if (inLobby()) {
-      const status = space.status();
-      html += '<p class="live">&#9679; Live &middot; ' + codeChip(status.code) + ' &middot; '
-        + status.online + ' here. Everyone with the code sees this game.</p>';
-      // A failed save used to roll back silently here; say it out loud instead.
-      if (status.problem) html += '<p class="error">' + escapeHtml(status.problem) + '</p>';
-      else if (navigator.onLine === false) {
-        html += '<p class="error">This phone is offline &mdash; changes stay here until the connection comes back.</p>';
-      }
-    }
-
-    html += '<div class="tiles">' + game.seats.map(function (seat, i) {
-      const classes = played && totals[i] === leader ? 'tile leading' : 'tile';
-      return '<article class="' + classes + '" style="--tile-color:' + escapeHtml(seat.color) + '">'
-        + '<div class="tile-head"><span class="disc" aria-hidden="true">' + escapeHtml(seat.emoji)
-        + '</span><span class="tile-name">' + escapeHtml(seat.name) + '</span></div>'
-        + '<div class="tile-total">' + totals[i] + '</div>'
-        + '<p class="tile-caption">total</p>'
-        + '<input class="input tile-input" inputmode="numeric" pattern="[0-9-]*"'
-        + ' data-seat="' + escapeHtml(seat.id) + '" aria-label="Points for ' + escapeHtml(seat.name)
-        + ' this round" autocomplete="off" value="' + escapeHtml(ui.roundDraft[seat.id] || '')
-        + '"></article>';
-    }).join('') + '</div>';
-
-    if (ui.addPanelOpen) html += addPanelHtml();
-    if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
-
-    html += '<button class="btn primary big" data-action="save-round">Save round</button>'
-      + '<div class="row">'
-      + '<button class="btn ghost" data-action="undo-round"' + (game.rounds.length ? '' : ' disabled')
-      + '>Undo last round</button>'
-      + '<button class="btn ghost" data-action="open-add-mid">+ Add player</button>'
-      + '<button class="btn danger" data-action="end-game"' + (game.rounds.length ? '' : ' disabled')
-      + '>End game</button>'
-      + '</div>';
-    return html;
-  }
-
-  function formatDate(timestamp) {
-    const at = Number(timestamp);
-    return new Date(Number.isFinite(at) && at > 0 ? at : Date.now()).toLocaleDateString(undefined, {
-      weekday: 'short', day: 'numeric', month: 'short'
-    });
-  }
-
-  function renderPodium(gameId, settled) {
-    const target = gameId ? backend.getGame(gameId) : backend.finishedGames()[0];
-    if (!target) { navigate('home'); return ''; }
-    const ranked = Ranking.rank(target, Ranking.directionFor(target, lowerWins()));
-    const highest = ranked.length ? Math.max.apply(null, ranked.map(function (r) { return r.total; })) : 0;
-
-    let html = '<header class="topbar"><div><h1 class="wordmark">Final scores</h1>'
-      + '<p class="tagline">' + escapeHtml(formatDate(target.startedAt)) + '</p></div>'
-      + '<nav class="topbar-links">' + refreshBtn()
-      + '<a class="btn ghost" href="#/home">Close</a></nav></header>';
-
-    html += '<div class="podium">' + ranked.map(function (entry) {
-      const classes = ['bar-col'];
-      if (entry.isWinner) classes.push('winner');
-      if (entry.isLoser) classes.push('loser');
-      if (settled) classes.push('grown');
-      const height = Math.max(28, Math.round((entry.total / Math.max(1, highest)) * 220));
-      return '<div class="' + classes.join(' ') + '" style="--tile-color:' + escapeHtml(entry.seat.color)
-        + ';--bar-height:' + height + 'px">'
-        + '<span class="bar-total" data-total="' + entry.total + '">' + (settled ? entry.total : 0) + '</span>'
-        + '<div class="bar"><span class="crown">👑</span></div>'
-        + '<span class="bar-name">' + escapeHtml(entry.seat.emoji) + ' ' + escapeHtml(entry.seat.name) + '</span>'
-        + (entry.isWinner ? '<span class="badge win">Winner</span>' : '')
-        + (entry.isLoser ? '<span class="badge lose">Loser</span>' : '')
-        + '</div>';
-    }).join('') + '</div>';
-
-    if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
-
-    html += '<div class="actions">';
-    const active = backend.activeGames();
-    if (active.length > 0) {
-      html += '<button class="btn primary big" data-action="resume-game" data-id="' + active[0].id
-        + '">Resume game</button>'
-        + '<p class="hint">A game is in progress.</p>';
-    } else {
-      html += '<button class="btn primary big" data-action="play-again">Play again</button>';
-    }
-    html += '<div class="row"><button class="btn ghost" data-action="new-players">New players</button>'
-      + '<a class="btn ghost" href="#/history">History</a></div></div>';
-    return html;
-  }
-
-  function renderHistory() {
-    const games = backend.finishedGames();
-    let html = '<header class="topbar"><div><h1 class="wordmark">History</h1>'
-      + '<p class="tagline">' + games.length + ' game' + (games.length === 1 ? '' : 's') + ' played</p></div>'
-      + '<nav class="topbar-links">' + refreshBtn()
-      + '<a class="btn ghost" href="#/home">Back</a></nav></header>';
-
-    if (games.length === 0) {
-      html += '<div class="empty-state"><p>No finished games yet.</p>'
-        + '<p class="hint">Finish a game and it will show up here.</p></div>';
-      return html;
-    }
-
-    html += '<ul class="games">' + games.map(function (game) {
-      const ranked = Ranking.rank(game, Ranking.directionFor(game, lowerWins()));
-      const winner = ranked.filter(function (entry) { return entry.isWinner; })
-        .map(function (entry) { return entry.seat.name + ' ' + entry.total; }).join(' & ');
-      const others = ranked.map(function (entry) {
-        return escapeHtml(entry.seat.name) + ' ' + entry.total;
-      }).join(' · ');
-      return '<li><button class="game-row" data-action="open-game" data-id="' + game.id + '">'
-        + '<span class="label">' + escapeHtml(formatDate(game.startedAt)) + '</span>'
-        + '<span class="game-winner">🏆 ' + escapeHtml(winner) + '</span>'
-        + '<span class="game-totals">' + others + '</span></button></li>';
-    }).join('') + '</ul>';
-    return html;
-  }
 
   function renderRules() {
     let html = '<header class="topbar"><div><h1 class="wordmark">Rules</h1>'
@@ -893,6 +1578,135 @@
     return html;
   }
 
+  function formatDate(timestamp) {
+    const at = Number(timestamp);
+    return new Date(Number.isFinite(at) && at > 0 ? at : Date.now()).toLocaleDateString(undefined, {
+      weekday: 'short', day: 'numeric', month: 'short'
+    });
+  }
+
+  function renderGame(gameId) {
+    const game = gameFor(gameId);
+    if (!game) { navigate('library'); return ''; }
+    if (ui.roundGameId !== gameId) { ui.roundGameId = gameId; ui.roundDraft = {}; }
+    const type = typeForGame(game) || {
+      id: game.typeId, name: game.typeName, emoji: '🎲', colour: '#f0b429',
+      pattern: 'pips', rules: game.rules
+    };
+    const rules = game.rules || type.rules;
+    const limit = Ranking.limitFor(game);
+    const reached = Ranking.limitReached(game);
+    const totals = Ranking.totalsFor(game);
+    const played = game.rounds.length > 0;
+    const lower = rules.winner !== 'highest';
+    const top = played ? Math.max.apply(null, totals) : null;
+
+    let html = '<header class="topbar"><div><p class="label">Round ' + (game.rounds.length + 1)
+      + '</p><h1 class="wordmark">' + escapeHtml(game.typeName || type.name) + '</h1>'
+      + '<p class="tagline">' + escapeHtml(ruleLabel(rules)) + '</p></div>'
+      + '<nav class="topbar-links">' + refreshBtn()
+      + '<a class="btn ghost" href="#/box/' + escapeHtml(game.typeId || type.id) + '">Back</a></nav></header>';
+
+    if (inLobby()) {
+      const status = space.status();
+      html += '<p class="live">&#9679; Live &middot; ' + codeChip(status.code) + ' &middot; '
+        + status.online + ' here. Everyone with the code sees this game.</p>';
+      if (status.problem) html += '<p class="error">' + escapeHtml(status.problem) + '</p>';
+      else if (navigator.onLine === false) {
+        html += '<p class="error">This phone is offline &mdash; changes stay here until the connection comes back.</p>';
+      }
+    }
+
+    html += '<div class="score-rules">' + ruleChips({ rules: rules })
+      + (limit !== null ? '<span class="score-limit">To ' + limit + ' · top ' + (top === null ? 0 : top) + '</span>' : '')
+      + '</div>';
+    if (reached) {
+      html += '<p class="limit-banner" role="status">Score limit reached — end the game.</p>';
+    }
+
+    const leader = played ? (lower ? Math.min.apply(null, totals) : Math.max.apply(null, totals)) : null;
+
+    html += '<div class="tiles">' + game.seats.map(function (seat, i) {
+      const classes = played && totals[i] === leader ? 'tile leading' : 'tile';
+      return '<article class="' + classes + '" style="--tile-color:' + escapeHtml(seat.color) + '">'
+        + '<div class="tile-head"><span class="disc" aria-hidden="true">' + escapeHtml(seat.emoji)
+        + '</span><span class="tile-name">' + escapeHtml(seat.name) + '</span></div>'
+        + '<div class="tile-total">' + totals[i] + '</div>'
+        + '<p class="tile-caption">total</p>'
+        + '<input class="input tile-input" inputmode="numeric" pattern="[0-9-]*"'
+        + ' data-seat="' + escapeHtml(seat.id) + '" aria-label="Points for ' + escapeHtml(seat.name)
+        + ' this round" autocomplete="off" value="' + escapeHtml(ui.roundDraft[seat.id] || '') + '"'
+        + (reached ? ' disabled' : '') + '></article>';
+    }).join('') + '</div>';
+
+    if (ui.addPanelOpen) html += addPanelHtml();
+    if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
+
+    html += '<button class="btn primary big" data-action="save-round"'
+      + (reached ? ' disabled' : '') + '>Save round</button>'
+      + '<div class="row">'
+      + '<button class="btn ghost" data-action="undo-round"' + (game.rounds.length ? '' : ' disabled')
+      + '>Undo last round</button>'
+      + '<button class="btn ghost" data-action="open-add-mid"' + (reached ? ' disabled' : '') + '>+ Add player</button>'
+      + '<button class="btn danger" data-action="end-game"' + (game.rounds.length ? '' : ' disabled')
+      + '>End game</button>'
+      + '</div>';
+    return html;
+  }
+
+  function renderPodium(gameId, settled) {
+    const target = gameId ? backend.getGame(gameId) : backend.finishedGames()[0];
+    if (!target) { navigate('library'); return ''; }
+    const type = target.typeId ? backend.getType(target.typeId) : null;
+    const typeId = target.typeId || (type && type.id) || 'solo';
+    const name = target.typeName || (type && type.name) || 'SOLO';
+    const rules = target.rules || (type && type.rules) || { winner: 'lowest', end: { type: 'manual' } };
+    const archived = type && type.archived;
+
+    let html = '<header class="topbar"><div><h1 class="wordmark">Final scores</h1>'
+      + '<p class="tagline">' + escapeHtml(name) + ' · ' + escapeHtml(formatDate(target.startedAt))
+      + '</p></div>'
+      + '<nav class="topbar-links">' + refreshBtn()
+      + '<a class="btn ghost" href="#/box/' + escapeHtml(typeId) + '">Done</a></nav></header>';
+
+    html += '<div class="podium-rules">' + ruleChips({ rules: rules }) + '</div>';
+
+    const ranked = Ranking.rank(target, Ranking.directionFor(target, true));
+    const highest = ranked.length ? Math.max.apply(null, ranked.map(function (r) { return r.total; })) : 0;
+
+    html += '<div class="podium">' + ranked.map(function (entry) {
+      const classes = ['bar-col'];
+      if (entry.isWinner) classes.push('winner');
+      if (entry.isLoser) classes.push('loser');
+      if (settled) classes.push('grown');
+      const height = Math.max(28, Math.round((entry.total / Math.max(1, highest)) * 220));
+      return '<div class="' + classes.join(' ') + '" style="--tile-color:' + escapeHtml(entry.seat.color)
+        + ';--bar-height:' + height + 'px">'
+        + '<span class="bar-total" data-total="' + entry.total + '">' + (settled ? entry.total : 0) + '</span>'
+        + '<div class="bar"><span class="crown">👑</span></div>'
+        + '<span class="bar-name">' + escapeHtml(entry.seat.emoji) + ' ' + escapeHtml(entry.seat.name) + '</span>'
+        + (entry.isWinner ? '<span class="badge win">Winner</span>' : '')
+        + (entry.isLoser ? '<span class="badge lose">Loser</span>' : '')
+        + '</div>';
+    }).join('') + '</div>';
+
+    if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
+
+    html += '<div class="actions">';
+    const active = backend.activeGames();
+    if (active.length) {
+      html += '<button class="btn primary big" data-action="resume-game" data-id="' + active[0].id
+        + '">Resume game</button><p class="hint">A game is in progress.</p>';
+    } else if (archived) {
+      html += '<p class="hint">This game is archived; play again is unavailable.</p>';
+    } else {
+      html += '<button class="btn primary big" data-action="play-again">Play again</button>';
+    }
+    html += '<div class="row"><button class="btn ghost" data-action="new-players">Game page</button>'
+      + '<a class="btn ghost" href="#/box/' + escapeHtml(typeId) + '/log">Log</a></div></div>';
+    return html;
+  }
+
   function saveRound() {
     const gameId = currentGameId();
     const before = Ranking.totalsFor(gameFor(gameId) || { seats: [], rounds: [] });
@@ -950,7 +1764,15 @@
     if (!trigger) return;
     const action = trigger.getAttribute('data-action');
     ui.addError = '';
-    if (action === 'open-add') { ui.addPanelOpen = true; ui.addTarget = 'roster'; ui.addEditId = null; ui.addName = ''; ui.addEmoji = EMOJI[0]; render(); focusName(); }
+    if (action === 'open-add') {
+      ui.addPanelOpen = true;
+      ui.addTarget = currentRoute().name === 'players' ? 'players' : 'roster';
+      ui.addEditId = null;
+      ui.addName = '';
+      ui.addEmoji = EMOJI[0];
+      render();
+      focusName();
+    }
     else if (action === 'close-add') closeAddPanel();
     else if (action === 'edit-player') {
       const player = backend.getState().players.find(function (p) { return p.id === trigger.getAttribute('data-id'); });
@@ -973,7 +1795,20 @@
       render();
       focusById('board-name');
     }
-    else if (action === 'toggle-seat') { backend.toggleSeat(trigger.getAttribute('data-id')); render(); }
+    else if (action === 'toggle-seat') {
+      const id = trigger.getAttribute('data-id');
+      try {
+        if (backend.getState().players.some(function (p) { return p.id === id; })) {
+          backend.toggleSeat(id);
+        } else {
+          // A name from the shared pool: join the roster, then seat them.
+          const created = backend.addPlayer(
+            trigger.getAttribute('data-name'), trigger.getAttribute('data-emoji'));
+          backend.toggleSeat(created.id);
+        }
+      } catch (error) { ui.addError = error.message; }
+      render();
+    }
     else if (action === 'toggle-manage') {
       ui.manageMode = !ui.manageMode;
       ui.pendingDelete = null;
@@ -988,12 +1823,11 @@
       render();
     }
     else if (action === 'resume-game') {
-      const id = trigger.getAttribute('data-id');
-      navigate(id ? 'game/' + id : 'game');
+      navigate('play/' + trigger.getAttribute('data-id'));
     }
     else if (action === 'open-game') navigate('podium/' + trigger.getAttribute('data-id'));
     else if (action === 'start-game') {
-      try { navigate('game/' + backend.startGame().id); }
+      try { navigate('play/' + backend.startGame().id); }
       catch (error) { ui.addError = error.message; render(); }
     }
     else if (action === 'save-round') saveRound();
@@ -1014,15 +1848,51 @@
       } catch (error) { ui.addError = error.message; render(); }
     }
     else if (action === 'play-again') {
-      try { navigate('game/' + backend.playAgain(currentRoute().id || null).id); }
-      catch (error) { ui.addError = error.message; render(); }
+      try { navigate('play/' + backend.playAgain(currentRoute().id || null).id); }
+      catch (error) {
+        ui.addError = (error && error.message) || 'Play again failed.';
+        render();
+      }
     }
-    else if (action === 'new-players') navigate('home');
-    else if (action === 'set-scoring') {
-      backend.setLowerWins(trigger.getAttribute('data-lower') === 'true');
-      render();
+    else if (action === 'new-players') {
+      const game = backend.getGame(currentRoute().id);
+      navigate('box/' + ((game && game.typeId) ? game.typeId : (backend.getActiveType() ? backend.getActiveType().id : 'solo')));
     }
     else if (action === 'dismiss-banner') { ui.bannerDismissed = true; refreshBanner(); }
+    else if (action === 'box-play') {
+      const type = backend.getType(currentRoute().id);
+      if (!type) return;
+      const active = backend.activeGames().filter(function (game) {
+        return game.typeId === type.id;
+      })[0];
+      if (active) {
+        navigate('play/' + active.id);
+      } else {
+        try { navigate('play/' + backend.startGame().id); }
+        catch (error) { ui.addError = error.message; render(); }
+      }
+    }
+    else if (action === 'start-live') {
+      const type = backend.getType(trigger.getAttribute('data-id'));
+      if (!type) return;
+      if (!canLeaveTable('a live table')) return;
+      if (space) leaveLobby();
+      createLobby(type.id);
+    }
+    else if (action === 'house-emoji') { const f = document.getElementById('house-name'); const d = houseDraft(backend.getType(currentRoute().id)); if (f) d.name = f.value; d.emoji = trigger.getAttribute('data-emoji'); render(); }
+    else if (action === 'house-colour') { houseDraft(backend.getType(currentRoute().id)).colour = trigger.getAttribute('data-colour'); render(); }
+    else if (action === 'house-pattern') { houseDraft(backend.getType(currentRoute().id)).pattern = trigger.getAttribute('data-pattern'); render(); }
+    else if (action === 'save-house') saveHouseRules();
+    else if (action === 'reset-type') {
+      if (!window.confirm('Reset this game to its default name, cover and rules?')) return;
+      try { backend.resetType(trigger.getAttribute('data-id')); ui.houseDraft = null; } catch (error) { ui.houseError = error.message; }
+      render();
+    }
+    else if (action === 'archive-type') {
+      if (!window.confirm('Archive this game? Its Hall and Log stay, but it cannot be played.')) return;
+      try { backend.archiveType(trigger.getAttribute('data-id')); navigate('library'); }
+      catch (error) { ui.houseError = error.message; render(); }
+    }
     else if (action === 'create-lobby') createLobby();
     else if (action === 'copy-code') copyCode();
     else if (action === 'refresh-app') refreshApp();
@@ -1030,9 +1900,63 @@
       ui.lobbyForm = 'join'; ui.addError = ''; render(); focusById('lobby-code');
     }
     else if (action === 'close-lobby-form') { ui.lobbyForm = null; ui.addError = ''; render(); }
+    else if (action === 'toggle-menu') { document.querySelector('.sidebar').classList.toggle('open'); }
+else if (action === 'open-new-game') openNewGame();
+    else if (action === 'open-box') openBox(trigger.getAttribute('data-id'));
+    else if (action === 'toggle-archived') { ui.showArchived = !ui.showArchived; render(); }
+    else if (action === 'restore-type') {
+      if (space) return;
+      try { backend.restoreType(trigger.getAttribute('data-id')); } catch (error) { ui.addError = error.message; }
+      render();
+    }
+    else if (action === 'open-join') {
+      if (!canLeaveTable('another table')) return;
+      if (space) leaveLobby();
+      ui.lobbyForm = 'join';
+      ui.addError = '';
+      render();
+      focusById('lobby-code');
+    }
+    else if (action === 'new-game-preset') {
+      const preset = (window.Library && window.Library.PRESETS ? window.Library.PRESETS : []).filter(function (one) { return one.id === trigger.getAttribute('data-preset'); })[0];
+      if (preset) {
+        const draft = newGameDraft();
+        draft.winner = preset.rules.winner;
+        draft.end = 'manual';
+        render();
+      }
+    }
+    else if (action === 'new-game-emoji') {
+      const field = document.getElementById('game-name');
+      const draft = newGameDraft();
+      if (field) draft.name = field.value;
+      draft.emoji = trigger.getAttribute('data-emoji');
+      render();
+      focusById('game-name');
+    }
+    else if (action === 'new-game-colour') { newGameDraft().colour = trigger.getAttribute('data-colour'); render(); }
+    else if (action === 'new-game-pattern') { newGameDraft().pattern = trigger.getAttribute('data-pattern'); render(); }
     else if (action === 'rename-lobby') {
       ui.lobbyForm = 'rename'; ui.lobbyName = space.status().name;
       ui.addError = ''; render(); focusById('lobby-name');
+    }
+    else if (action === 'remove-person') {
+      const key = trigger.getAttribute('data-key');
+      const name = trigger.getAttribute('data-name');
+      if (!name) return;
+      if (!window.confirm('Remove ' + name + ' from your tables here?'
+        + ' Their past results stay on the leaderboard.')) return;
+      const match = local.getState().players.filter(function (p) {
+        return Leaderboard.normalise(p.name) === Leaderboard.normalise(name);
+      })[0];
+      if (match) {
+        try { local.removePlayer(match.id); } catch (error) { ui.boardError = error.message; }
+      }
+      entomb(name);
+      if (adapter && key) sync.remove(key).catch(function () {});
+      ui.boardNotice = name + ' removed from your tables here.';
+      loadBoard();
+      render();
     }
     else if (action === 'leave-lobby') leaveLobby();
     else if (action === 'remove-player') {
@@ -1058,15 +1982,45 @@
     else if (event.target.id === 'board-name') ui.boardName = event.target.value;
     else if (event.target.id === 'lobby-name') ui.lobbyName = event.target.value;
     else if (event.target.id === 'lobby-code') ui.lobbyCode = event.target.value;
+    else if (event.target.id === 'game-name') { newGameDraft().name = event.target.value; }
+    else if (event.target.id === 'game-limit') { newGameDraft().limit = event.target.value; }
     else if (event.target.getAttribute('data-seat')) {
       ui.roundDraft[event.target.getAttribute('data-seat')] = event.target.value;
+    }
+    else if (event.target.id === 'roster-search') {
+      ui.rosterFilter = event.target.value;
+      // Filter in place — no render(), so the caret (and mobile keyboard) stay put.
+      const filter = Leaderboard.normalise(ui.rosterFilter || '');
+      document.querySelectorAll('.roster .pcard').forEach(function (card) {
+        const tag = card.querySelector('[data-name]');
+        if (!tag) return; // keeps the Add-player card always visible
+        card.hidden = Leaderboard.normalise(tag.getAttribute('data-name')).indexOf(filter) === -1;
+      });
+    }
+  });
+
+  document.addEventListener('change', function (event) {
+    if (event.target.name === 'winner') { newGameDraft().winner = event.target.value; render(); }
+    if (event.target.name === 'end') { newGameDraft().end = event.target.value; render(); }
+    if (event.target.name === 'house-winner') { houseDraft(backend.getType(currentRoute().id)).winner = event.target.value; render(); }
+    if (event.target.name === 'house-end') { houseDraft(backend.getType(currentRoute().id)).end = event.target.value; render(); }
+  });
+  document.addEventListener('input', function (event) {
+    if (event.target.id === 'house-name') {
+      const type = backend.getType(currentRoute().id);
+      if (type) houseDraft(type).name = event.target.value;
+    }
+    else if (event.target.id === 'house-limit') {
+      const type = backend.getType(currentRoute().id);
+      if (type) houseDraft(type).limit = event.target.value;
     }
   });
 
   document.addEventListener('submit', function (event) {
     if (event.target.id === 'board-register') {
       event.preventDefault();
-      registerBoardPlayer(document.getElementById('board-name').value);
+      const form = event.target;
+      registerBoardPlayer(document.getElementById('board-name').value, form.getAttribute('data-game'));
       return;
     }
     if (event.target.id === 'join-lobby-form') {
@@ -1080,6 +2034,31 @@
       renameLobby(document.getElementById('lobby-name').value);
       return;
     }
+    if (event.target.id === 'new-game-form') {
+      event.preventDefault();
+      const draft = newGameDraft();
+      ui.newGameError = '';
+      try {
+        const type = backend.addType({
+          name: draft.name,
+          emoji: draft.emoji,
+          colour: draft.colour,
+          pattern: draft.pattern,
+          rules: {
+            winner: draft.winner,
+            end: draft.end === 'limit'
+              ? { type: 'limit', limit: Number(draft.limit) }
+              : { type: 'manual' }
+          }
+        });
+        ui.newGame = null;
+        navigate('box/' + type.id);
+      } catch (error) {
+        ui.newGameError = error.message;
+        render();
+      }
+      return;
+    }
     if (event.target.id !== 'add-player-form') return;
     event.preventDefault();
     const name = document.getElementById('new-player-name').value;
@@ -1087,7 +2066,18 @@
     try {
       if (ui.addTarget === 'edit') backend.updatePlayer(ui.addEditId, name, ui.addEmoji);
       else if (ui.addTarget === 'game') backend.addPlayerToGame(currentGameId(), name, ui.addEmoji);
-      else backend.addPlayer(name, ui.addEmoji);
+      else if (ui.addTarget === 'players') {
+        // The Players page is the local roster's home: live tables must not
+        // receive an accidental team member because a lobby happens to be open.
+        local.addPlayer(name, ui.addEmoji);
+        untomb(name);
+        publishPlayer(name, ui.addEmoji);
+      }
+      else {
+        backend.addPlayer(name, ui.addEmoji);
+        untomb(name);
+        publishPlayer(name, ui.addEmoji);
+      }
       closeAddPanel();
     } catch (error) {
       ui.addError = error.message;
@@ -1112,6 +2102,7 @@
     ui.boardBusy = false;
     ui.boardName = '';
     ui.boardEmoji = EMOJI[0];
+    ui.rosterFilter = '';
     render();
   });
 
@@ -1131,7 +2122,12 @@
     const saved = local.getState().lobby;
     ui.lobbyNote = clean ? 'Renamed to ' + clean + '.' : 'Name cleared.';
     adapter.renameSpace(code, clean).then(function () {
-      local.setLobby({ code: code, name: clean, joinedAt: saved && saved.joinedAt });
+      local.setLobby({
+        code: code,
+        name: clean,
+        joinedAt: saved && saved.joinedAt,
+        typeId: saved && saved.typeId
+      });
       ui.lobbyForm = null;
       render();
     }).catch(function (error) {
@@ -1152,7 +2148,8 @@
 
   const remembered = local.getState().lobby;
   if (remembered && adapter && Space.validCode(Space.normalizeCode(remembered.code))) {
-    enterLobby(Space.normalizeCode(remembered.code), remembered.name);
+    const type = remembered.typeId ? local.getType(remembered.typeId) : null;
+    enterLobby(Space.normalizeCode(remembered.code), remembered.name, type || local.getActiveType());
   } else {
     render();
   }

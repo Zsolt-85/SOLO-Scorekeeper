@@ -13,7 +13,7 @@
     {
       id: 'lowest',
       label: 'Lowest wins',
-      rules: { winner: 'lowest', end: { type: 'manual' } }
+      rules: { winner: 'lowest', end: { type: 'manual' } }, cover: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIiB2aWV3Qm94PSIwIDAgNDAwIDMwMCI+PHJlY3Qgd2lkdGg9IjQwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9IiMwZDEwMjAiLz48dGV4dCB4PSIyMDAiIHk9IjE0MCIgZm9udC1zaXplPSIxMjAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNmMGI0MjkiPiYjOTgzMDs8L3RleHQ+PHRleHQgeD0iMjAwIiB5PSIyMjAiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWkiIGZvbnQtc2l6ZT0iMjgiIGZpbGw9IiNlYWVhZWEiIHRleHQtYW5jaG9yPSJtaWRkbGUiPlNPTE88L3RleHQ+PC9zdmc+'
     },
     {
       id: 'highest',

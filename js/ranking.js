@@ -57,8 +57,23 @@
   // A finished game carries the direction it was played in; anything older (or
   // still in progress) follows whatever the app is set to now.
   function directionFor(game, lowerWins) {
+    if (game && game.rules && game.rules.winner === 'lowest') return true;
+    if (game && game.rules && game.rules.winner === 'highest') return false;
     if (game && typeof game.lowerWins === 'boolean') return game.lowerWins;
     return lowerWins === undefined ? true : !!lowerWins;
+  }
+
+  function limitFor(game) {
+    const end = game && game.rules && game.rules.end;
+    if (!end || end.type !== 'limit') return null;
+    const limit = Number(end.limit);
+    return Number.isInteger(limit) && limit >= 1 && limit <= 1000000 ? limit : null;
+  }
+
+  function limitReached(game) {
+    const limit = limitFor(game);
+    if (limit === null) return false;
+    return totalsFor(game).some(function (total) { return total >= limit; });
   }
 
   // The running win/loss record for one player: the best total in a finished
@@ -87,6 +102,8 @@
     rank: rank,
     record: record,
     directionFor: directionFor,
+    limitFor: limitFor,
+    limitReached: limitReached,
     seatForPlayer: seatForPlayer
   };
   global.Ranking = Ranking;
