@@ -1,0 +1,27 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "test/**",
+      "docs/**",
+      ".superpowers/**",
+      "firestore.rules",
+      "package.json",
+      "package-lock.json",
+      "check_home.py",
+      "fix_emoji.js",
+      "temp_extract.ps1",
+      "temp_t6.txt",
+      "test-output.txt",
+      "test_result.txt",
+      "test_result2.txt",
+      "test_result3.txt",
+      "test_result4.txt",
+      "test_run_13.txt",
+      "js/ui_old.js"
+    ]
+  }
+}
