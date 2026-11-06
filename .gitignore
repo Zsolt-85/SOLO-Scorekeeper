@@ -1,2 +1,9 @@
 .superpowers/
 docs/
+.firebase/
+node_modules/
+
+# Local test/analysis output
+test-output.txt
+test_result*.txt
+test_run_*.txt

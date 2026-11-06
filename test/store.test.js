@@ -71,9 +71,10 @@ test('addType makes the new custom game active and persists it', () => {
     name: 'Rummy', emoji: '🃏', colour: '#5bc8af', pattern: 'stripes',
     rules: { winner: 'lowest', end: { type: 'limit', limit: 100 } }
   });
-  assert.equal(type.id, 't2');
-  assert.equal(store.getActiveType().id, 't2');
-  assert.equal(createStore(storage).getType('t2').name, 'Rummy');
+  // Ids are generated per store (random stamp), so pin behavior, not format.
+  assert.ok(type && type.id);
+  assert.equal(store.getActiveType().id, type.id);
+  assert.equal(createStore(storage).getType(type.id).name, 'Rummy');
 });
 
 test('updateType, archiveType, restoreType and resetType persist', () => {

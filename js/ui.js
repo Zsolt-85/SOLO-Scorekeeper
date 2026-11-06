@@ -526,30 +526,11 @@
       ui.boardKey = null;
     }
     refreshBanner();
-    debugChip(route);
     } catch (error) {
       // Even if some handler somewhere swallows this, the screen reports it.
       showCrash(error);
       throw error;
     }
-  }
-
-  // Small fixed status chip (debug build aid): what route rendered and what the
-  // views ended up with. Makes a "black screen" readable instead of silent.
-  function debugChip(route) {
-    try {
-      let chip = document.getElementById('debug-chip');
-      if (!chip) {
-        chip = document.createElement('div');
-        chip.id = 'debug-chip';
-        chip.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:9998;'
-          + 'padding:3px 8px;background:rgba(13,16,32,0.85);color:#8f9bb3;border:1px solid #2a3050;'
-          + 'border-radius:8px;font:11px ui-monospace,monospace;max-width:60vw;overflow:hidden';
-        document.body.appendChild(chip);
-      }
-      chip.textContent = 'route ' + (window.location.hash || '-')
-        + ' · game ' + (views.play.hidden ? 'hidden' : 'len ' + views.play.innerHTML.length);
-    } catch (error) { /* diagnostics must never break the app */ }
   }
 
   function lowerWins() {
@@ -1102,7 +1083,10 @@
         + '<p class="hint">Add a game and play a table &mdash; standings appear here.</p></div>';
       return html;
     }
-    if (data.fallback) html += '<p class="muted">Showing your saved local results until the online board loads.</p>';
+    if (data.fallback) {
+      html += '<p class="muted">Showing your saved local results.'
+        + (navigator.onLine === false ? ' This device is offline.' : '') + '</p>';
+    }
     html += (wanted ? leaderboardBoardHtml(wanted)
       : boards.map(leaderboardBoardHtml).join(''));
     return html;
@@ -1148,6 +1132,7 @@
       + '<nav class="topbar-links"><button type="button" class="btn primary" data-action="open-add">Add player</button>'
       + '<a class="btn ghost" href="#/leaderboard">Leaderboard</a></nav></header>';
     if (ui.boardLoadError) html += '<p class="error">' + escapeHtml(ui.boardLoadError) + '</p>';
+    if (ui.boardError) html += '<p class="error">' + escapeHtml(ui.boardError) + '</p>';
     if (ui.boardNotice) html += '<p class="muted" role="status">' + escapeHtml(ui.boardNotice) + '</p>';
     if (rows.length === 0) {
       html += '<div class="empty-state"><p>No players yet.</p>'
@@ -1156,7 +1141,10 @@
       if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
       return html;
     }
-    if (data.fallback) html += '<p class="muted">Showing players from your saved local results until the online board loads.</p>';
+    if (data.fallback) {
+      html += '<p class="muted">Showing players from your saved local results.'
+        + (navigator.onLine === false ? ' This device is offline.' : '') + '</p>';
+    }
     html += '<ul class="pr-list">' + rows.map(playersRowHtml).join('') + '</ul>'
       + '<p class="board-privacy">A name is the player. Every table adds to the same roster.</p>'
       + '<p class="muted">Removing a player takes them off your tables here. Their past results stay on the leaderboard.</p>';
@@ -1817,7 +1805,14 @@
     else if (action === 'ask-delete') { ui.pendingDelete = trigger.getAttribute('data-id'); render(); }
     else if (action === 'cancel-delete') { ui.pendingDelete = null; render(); }
     else if (action === 'confirm-delete') {
-      try { backend.removePlayer(trigger.getAttribute('data-id')); }
+      const id = trigger.getAttribute('data-id');
+      const player = backend.getState().players.filter(function (p) { return p.id === id; })[0];
+      try {
+        backend.removePlayer(id);
+        // Same permanence as the Players page Remove: old results must not
+        // resurrect the name on the next merged roster render.
+        if (player) entomb(player.name);
+      }
       catch (error) { ui.addError = error.message; }
       ui.pendingDelete = null;
       render();
@@ -1949,12 +1944,15 @@ else if (action === 'open-new-game') openNewGame();
       const match = local.getState().players.filter(function (p) {
         return Leaderboard.normalise(p.name) === Leaderboard.normalise(name);
       })[0];
-      if (match) {
-        try { local.removePlayer(match.id); } catch (error) { ui.boardError = error.message; }
+      try {
+        if (match) local.removePlayer(match.id);
+        entomb(name);
+        if (adapter && key) sync.remove(key).catch(function () {});
+        ui.boardError = '';
+        ui.boardNotice = name + ' removed from your tables here.';
+      } catch (error) {
+        ui.boardError = (error && error.message) || 'That player could not be removed.';
       }
-      entomb(name);
-      if (adapter && key) sync.remove(key).catch(function () {});
-      ui.boardNotice = name + ' removed from your tables here.';
       loadBoard();
       render();
     }
@@ -2138,7 +2136,8 @@ else if (action === 'open-new-game') openNewGame();
 
   window.addEventListener('online', function () {
     sync.flush().then(function () {
-      if (currentRoute().name === 'leaderboard') render();
+      const name = currentRoute().name;
+      if (name === 'leaderboard' || name === 'players') render();
     });
     if (space) render();
   });

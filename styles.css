@@ -733,18 +733,6 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
 
 /* -- Filter strip -- */
 .lb-filters { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0 0 1.1rem; align-items: center; }
-.lb-chip {
-  display: inline-flex; align-items: center; gap: 0.45rem;
-  min-height: 38px; padding: 0.15rem 0.8rem;
-  border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 999px;
-  color: var(--muted); text-decoration: none; font-size: 0.8rem;
-  transition: transform 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-.lb-chip:hover, .lb-chip:focus-visible { color: var(--gold); border-color: var(--gold); transform: translateY(-1px); }
-.lb-chip:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-.lb-chip .cover { width: 20px; aspect-ratio: 1; border-radius: 5px; }
-.lb-chip .cover-face { font-size: 0.7rem; }
-.lb-chip .cover-label { display: none; }
 
 /* -- Players roster -- */
 .pr-list { display: grid; gap: 0.55rem; }
@@ -771,14 +759,14 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
   .lb-title h2 { font-size: 1.15rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .lb-cover .cover, .lb-chip, .pr-row { transition: none; }
-  a.lb-cover:hover .cover, .lb-chip:hover, .pr-row:hover { transform: none; }
+  .lb-cover .cover, .pr-row { transition: none; }
+  a.lb-cover:hover .cover, .pr-row:hover { transform: none; }
 }
 
 /* Unified pool: roster search field and compact row Remove button. */
 .roster-search { width: 100%; margin-bottom: 0.7rem; }
 .roster .pcard[hidden] { display: none; }
 .pr-row .rm {
-  margin-left: auto; flex-shrink: 0;
+  flex-shrink: 0;
   font-size: 0.66rem; padding: 0.28rem 0.6rem;
 }
