@@ -543,14 +543,15 @@
       : 'Standard scoring · most points wins';
   }
 
-  // "Win 2 · Lose 1" on the card, once there is anything to show.
+  // "Won 2 of 3" on the card, once there is anything to show: the player's
+  // record at this game, measured by wins out of games played — no loss count.
   function recordHtml(player, type) {
     const games = backend.finishedGames().filter(function (game) {
       return game.typeId === type.id;
     });
     const record = Ranking.record(games, player, type.rules.winner === 'lowest');
     if (record.wins + record.losses === 0) return '';
-    return '<span class="rec">Win ' + record.wins + ' &middot; Lose ' + record.losses + '</span>';
+    return '<span class="rec">Won ' + record.wins + ' of ' + (record.wins + record.losses) + '</span>';
   }
 
   function cardHtml(player, seated, type) {
@@ -1094,7 +1095,8 @@
 
   function playersRowHtml(row) {
     const record = row.games
-      ? row.games + ' game' + (row.games === 1 ? '' : 's') + ' &middot; ' + row.wins + ' W'
+      ? row.games + ' game' + (row.games === 1 ? '' : 's') + ' &middot; '
+        + row.wins + ' win' + (row.wins === 1 ? '' : 's')
       : 'No games yet';
     const pct = row.games ? '<span class="board-pct">' + Leaderboard.winPercent(row) + '%</span>' : '';
     const fav = row.favourite
@@ -1434,7 +1436,7 @@
     const place = row.place ? String(row.place) : '&ndash;';
     const record = row.games
       ? row.games + ' game' + (row.games === 1 ? '' : 's') + ' &middot; '
-        + row.wins + ' W &middot; ' + row.losses + ' L'
+        + row.wins + ' win' + (row.wins === 1 ? '' : 's')
       : 'No games yet';
     const pct = Leaderboard.winPercent(row);
     const remove = row.fromPool && row.games === 0
