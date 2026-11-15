@@ -181,7 +181,6 @@
         color: profile.color || colourFor(profile.id),
         games: 0,
         wins: 0,
-        losses: 0,
         fromPool: true,
         lastAt: 0
       };
@@ -204,7 +203,6 @@
           color: colourFor(key),
           games: 0,
           wins: 0,
-          losses: 0,
           fromPool: false,
           lastAt: 0
         });
@@ -228,7 +226,6 @@
         const row = rows[key];
         row.games += 1;
         if (perGame[key].win) row.wins += 1;
-        else row.losses += 1;
       });
     });
 
@@ -249,7 +246,6 @@
         color: profile.color || colourFor(profile.id),
         games: 0,
         wins: 0,
-        losses: 0,
         counts: {},
         gamesByName: {},
         fromPool: true
@@ -273,7 +269,6 @@
           color: colourFor(key),
           games: 0,
           wins: 0,
-          losses: 0,
           counts: {},
           gamesByName: {},
           lastAt: 0,
@@ -298,7 +293,6 @@
         const row = rows[key];
         row.games += 1;
         if (perGame[key].win) row.wins += 1;
-        else row.losses += 1;
         row.counts[game] = (row.counts[game] || 0) + 1;
         row.gamesByName[game] = gameName;
       });
@@ -319,7 +313,6 @@
         color: row.color,
         games: row.games,
         wins: row.wins,
-        losses: row.losses,
         favourite: favourite
       };
     });

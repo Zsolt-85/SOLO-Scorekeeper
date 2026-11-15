@@ -107,7 +107,7 @@ test('aggregate starts from every pool profile, even with no games', () => {
   assert.equal(maya.place, null);
 });
 
-test('aggregate merges profiles and results into games, wins and losses', () => {
+test('aggregate merges profiles and results into games and wins', () => {
   const pool = [
     { id: 'p_maya', name: 'Maya', emoji: 'cat', color: '#111111' },
     { id: 'p_dana', name: 'Dana', emoji: 'bear' }
@@ -122,13 +122,12 @@ test('aggregate merges profiles and results into games, wins and losses', () => 
   assert.equal(maya.name, 'Maya');
   assert.equal(maya.games, 3);
   assert.equal(maya.wins, 2);
-  assert.equal(maya.losses, 1);
+  assert.equal('losses' in maya, false); // the concept is gone, not just hidden
   assert.equal(maya.ranked, true);
   assert.equal(maya.place, 1);
   const sam = rows.find((row) => row.key === 'p_sam');
   assert.equal(sam.games, 2);
   assert.equal(sam.wins, 1);
-  assert.equal(sam.losses, 1);
   assert.equal(sam.ranked, false);
   assert.equal(sam.place, null);
   const ana = rows.find((row) => row.key === 'p_ana');
@@ -147,7 +146,21 @@ test('aggregate counts a repeated key inside one result once', () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].games, 1);
   assert.equal(rows[0].wins, 1);
-  assert.equal(rows[0].losses, 0);
+});
+
+// A tie is the user's confirmed rule: everyone at the best score is a winner
+// (resultFor already marks both), so aggregate gives each one game and one win.
+test('aggregate counts every best-score player a win in a tie', () => {
+  const tie = Leaderboard.resultFor(game({
+    rounds: [{ id: 'r1', at: 15, points: { s1: 7, s2: 7 } }]
+  }), { mode: 'solo' });
+  const rows = Leaderboard.aggregate([], [tie]);
+  const maya = rows.find((row) => row.key === 'p_maya');
+  const sam = rows.find((row) => row.key === 'p_sam');
+  assert.equal(maya.games, 1);
+  assert.equal(maya.wins, 1);
+  assert.equal(sam.games, 1);
+  assert.equal(sam.wins, 1);
 });
 
 test('aggregate ignores duplicate result ids and malformed entries', () => {
@@ -276,7 +289,7 @@ test('allPlayers merges pool profiles and result participants, deduped by key', 
   assert.equal(maya.color, '#f0b429');
   assert.equal(maya.games, 3);
   assert.equal(maya.wins, 2);
-  assert.equal(maya.losses, 1);
+  assert.equal('losses' in maya, false);
   assert.deepEqual(maya.favourite, { game: 'solo', name: 'SOLO', played: 2 });
   const otto = rows[1];
   assert.equal(otto.games, 2);
@@ -323,7 +336,6 @@ test('allPlayers merges a duplicated key in one result like aggregate does', () 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].games, 1);
   assert.equal(rows[0].wins, 1);
-  assert.equal(rows[0].losses, 0);
 });
 
 test('allPlayers sorts empty input into empty output', () => {
