@@ -313,6 +313,7 @@
         color: row.color,
         games: row.games,
         wins: row.wins,
+        fromPool: row.fromPool,
         favourite: favourite
       };
     });

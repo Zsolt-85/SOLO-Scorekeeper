@@ -26,6 +26,7 @@
   const ui = {
     addPanelOpen: false, addEmoji: EMOJI[0], addTarget: 'roster', addEditId: null,
     addError: '', addName: '', bannerDismissed: false, manageMode: false, pendingDelete: null,
+    editRow: null, addBusy: false,
     lobbyForm: null, lobbyName: '', lobbyCode: '', lobbyNote: '', busy: null,
     roundGameId: null, roundDraft: {}, refreshing: false, podiumPlayed: null,
     board: null, boardKey: null, boardName: '', boardEmoji: EMOJI[0], boardBusy: false,
@@ -1108,12 +1109,17 @@
       + '<span class="pr-who"><span class="nm">' + escapeHtml(row.name) + '</span>'
       + '<span class="board-record">' + record + '</span></span>'
       + '<span class="pr-den">' + pct + fav + '</span>'
+      + '<button type="button" class="btn ghost rm" data-action="edit-person"'
+      + ' data-key="' + escapeHtml(row.key) + '" data-name="' + escapeHtml(row.name) + '"'
+      + ' aria-label="Edit ' + escapeHtml(row.name) + '">Edit</button>'
       + '<button type="button" class="btn ghost rm" data-action="remove-person"'
       + ' data-key="' + escapeHtml(row.key) + '" data-name="' + escapeHtml(row.name) + '"'
       + ' aria-label="Remove ' + escapeHtml(row.name) + '">Remove</button></li>';
   }
 
-  function renderPlayers() {
+  // The Players-page roster, filtered the same way for rendering and for the
+  // Edit button's row lookup — a name is the player, tombstones stay hidden.
+  function playersRows() {
     const data = boardData();
     const dead = tombstones();
     const alive = function (name) { return dead.indexOf(Leaderboard.normalise(name)) === -1; };
@@ -1128,7 +1134,12 @@
     }).filter(function (result) {
       return result && Array.isArray(result.players) && result.players.length > 0;
     });
-    const rows = Leaderboard.allPlayers(pool, results);
+    return Leaderboard.allPlayers(pool, results);
+  }
+
+  function renderPlayers() {
+    const data = boardData();
+    const rows = playersRows();
     let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">Players</h1>'
       + '<p class="tagline">Everyone from your tables</p></div>'
       + '<nav class="topbar-links"><button type="button" class="btn primary" data-action="open-add">Add player</button>'
@@ -1719,7 +1730,9 @@
   }
 
   function addPanelHtml() {
-    const isEdit = ui.addTarget === 'edit';
+    const isEdit = ui.addTarget === 'edit' || ui.addTarget === 'edit-person';
+    const boardEdit = ui.addTarget === 'edit-person';
+    const lockedName = boardEdit && ui.editRow && ui.editRow.games > 0;
     const heading = isEdit ? 'Edit player'
       : (ui.addTarget === 'game' ? 'Add player to this game' : 'Add player');
     const submitLabel = isEdit ? 'Save changes'
@@ -1727,7 +1740,12 @@
     return '<section class="panel"><form id="add-player-form">'
       + '<h2 style="font-size:1.05rem;margin-bottom:0.75rem">' + heading + '</h2>'
       + '<label class="label" for="new-player-name">Name</label>'
-      + '<input id="new-player-name" class="input" maxlength="20" autocomplete="off" required value="' + escapeHtml(ui.addName) + '">'
+      + '<input id="new-player-name" class="input" maxlength="20" autocomplete="off" required'
+      + (lockedName ? ' disabled' : '')
+      + ' value="' + escapeHtml(ui.addName) + '">'
+      + (lockedName
+        ? '<p class="hint">Has games — old results cannot move, so the name stays.</p>'
+        : '')
       + '<p class="label" style="margin-top:0.9rem">Emoji</p>'
       + '<div class="emoji-grid" role="group" aria-label="Emoji">'
       + EMOJI.map(function (face) {
@@ -1735,7 +1753,9 @@
           + '" aria-pressed="' + (face === ui.addEmoji ? 'true' : 'false') + '">' + face + '</button>';
       }).join('')
       + '</div>'
-      + '<div class="row"><button type="submit" class="btn primary">' + submitLabel + '</button>'
+      + '<div class="row"><button type="submit" class="btn primary"'
+      + (ui.addBusy ? ' disabled aria-busy="true"' : '') + '>'
+      + (ui.addBusy ? 'Saving&hellip;' : submitLabel) + '</button>'
       + '<button type="button" class="btn ghost" data-action="close-add">Cancel</button></div>'
       + '</form></section>';
   }
@@ -1746,6 +1766,8 @@
     ui.addName = '';
     ui.addTarget = 'roster';
     ui.addEditId = null;
+    ui.editRow = null;
+    ui.addBusy = false;
     render();
   }
 
@@ -1764,6 +1786,22 @@
       focusName();
     }
     else if (action === 'close-add') closeAddPanel();
+    else if (action === 'edit-person') {
+      const key = trigger.getAttribute('data-key');
+      const row = playersRows().filter(function (one) { return one.key === key; })[0];
+      if (row) {
+        ui.addPanelOpen = true;
+        ui.addTarget = 'edit-person';
+        ui.editRow = {
+          key: row.key, name: row.name, emoji: row.emoji,
+          games: row.games, fromPool: row.fromPool
+        };
+        ui.addName = row.name;
+        ui.addEmoji = row.emoji;
+        render();
+        focusName();
+      }
+    }
     else if (action === 'edit-player') {
       const player = backend.getState().players.find(function (p) { return p.id === trigger.getAttribute('data-id'); });
       if (player) {
@@ -2063,6 +2101,31 @@ else if (action === 'open-new-game') openNewGame();
     event.preventDefault();
     const name = document.getElementById('new-player-name').value;
     ui.addName = name;
+    if (ui.addTarget === 'edit-person') {
+      if (ui.addBusy || !ui.editRow) return;
+      ui.addBusy = true;
+      render();
+      const editor = PoolEdit.create({
+        sync: sync, adapter: adapter, local: local,
+        activeGameId: function () {
+          const type = local.getActiveType();
+          return type ? type.id : 'solo';
+        }
+      });
+      editor.editPlayer(ui.editRow, name, ui.addEmoji).then(function (out) {
+        closeAddPanel();
+        ui.boardNotice = (out.changed.indexOf('name') !== -1
+          ? 'Renamed to ' + out.name + '.' : 'Player updated.')
+          + (out.warning ? " Cloud updated; this device's roster will catch up." : '');
+        loadBoard();
+        render();
+      }).catch(function (error) {
+        ui.addBusy = false;
+        ui.addError = (error && error.message) || 'The player could not be updated.';
+        render();
+      });
+      return;
+    }
     try {
       if (ui.addTarget === 'edit') backend.updatePlayer(ui.addEditId, name, ui.addEmoji);
       else if (ui.addTarget === 'game') backend.addPlayerToGame(currentGameId(), name, ui.addEmoji);

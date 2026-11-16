@@ -338,6 +338,18 @@ test('allPlayers merges a duplicated key in one result like aggregate does', () 
   assert.equal(rows[0].wins, 1);
 });
 
+test('allPlayers rows carry fromPool so pool edits can tell them from result-only rows', () => {
+  const rows = Leaderboard.allPlayers(
+    [{ id: 'p_maya', name: 'Maya', emoji: 'cat' }],
+    [{ id: 'r1', at: 5, game: 'solo', lowerWins: true,
+       players: [p('maya', 'Maya', true), p('sam', 'Sam', false)] }]
+  );
+  const maya = rows.find((row) => row.key === 'p_maya');
+  const sam = rows.find((row) => row.key === 'p_sam');
+  assert.equal(maya.fromPool, true);
+  assert.equal(sam.fromPool, false);
+});
+
 test('allPlayers sorts empty input into empty output', () => {
   assert.deepEqual(Leaderboard.allPlayers(null, null), []);
 });
