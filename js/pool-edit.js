@@ -25,16 +25,16 @@
       return (local && local.getState() && local.getState().players) || [];
     }
 
-    function profile(name, emoji) {
-      return { name: name, emoji: emoji, game: activeGameId() };
+    function profile(name, emoji, game) {
+      return { name: name, emoji: emoji, game: game || activeGameId() };
     }
 
     // Best effort: the delete may have failed too, but if it succeeded the old
     // profile must not vanish because the follow-up create rejected.
-    function restore(key, name, emoji) {
+    function restore(key, name, emoji, game) {
       if (!adapter) return Promise.resolve();
       try {
-        return Promise.resolve(adapter.putPoolPlayer(key, profile(name, emoji)))
+        return Promise.resolve(adapter.putPoolPlayer(key, profile(name, emoji, game)))
           .catch(function () {});
       } catch (error) {
         return Promise.resolve();
@@ -95,10 +95,12 @@
         return Promise.resolve()
           .then(deleteFirst)
           .then(function () {
-            return sync.register(display, emoji, { queue: false, game: activeGameId() });
+            return sync.register(display, emoji, {
+              queue: false, game: original.game || activeGameId()
+            });
           })
           .catch(function (error) {
-            return restore(original.key, original.name, original.emoji).then(function () {
+            return restore(original.key, original.name, original.emoji, original.game).then(function () {
               throw (error && error.code === 'already-exists'
                 ? new Error('That name is already registered.')
                 : error);
@@ -109,9 +111,9 @@
 
       return Promise.resolve()
         .then(deleteFirst)
-        .then(function () { return adapter.putPoolPlayer(original.key, profile(original.name, emoji)); })
+        .then(function () { return adapter.putPoolPlayer(original.key, profile(original.name, emoji, original.game)); })
         .catch(function (error) {
-          return restore(original.key, original.name, original.emoji).then(function () {
+          return restore(original.key, original.name, original.emoji, original.game).then(function () {
             throw error;
           });
         })

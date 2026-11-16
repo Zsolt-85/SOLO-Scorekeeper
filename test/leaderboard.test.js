@@ -348,6 +348,8 @@ test('allPlayers rows carry fromPool so pool edits can tell them from result-onl
   const sam = rows.find((row) => row.key === 'p_sam');
   assert.equal(maya.fromPool, true);
   assert.equal(sam.fromPool, false);
+  assert.equal(maya.game, 'solo'); // registered game must survive profile edits
+  assert.equal(sam.game, undefined); // result-only rows have no registration to preserve
 });
 
 test('allPlayers sorts empty input into empty output', () => {

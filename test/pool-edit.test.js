@@ -39,7 +39,7 @@ function harness(options) {
     sync: sync,
     adapter: adapter,
     local: local,
-    activeGameId: function () { return 'solo'; }
+    activeGameId: function () { return opts.activeGameId || 'solo'; }
   });
   return { edit: edit, calls: calls };
 }
@@ -114,6 +114,24 @@ test('rename to a name already on the local roster is refused before pool writes
   const h = harness({ players: [{ id: 'm1', name: 'Maya', emoji: '🐱' }, { id: 'm2', name: 'Maya B', emoji: '🐻' }] });
   await assert.rejects(h.edit.editPlayer(row(), 'Maya B', '🦊'), /already on your roster/);
   assert.deepEqual(h.calls, []);
+});
+
+test('edit and restore keep the player\'s own game, not the active game', async () => {
+  const h = harness({ activeGameId: 'solo' }); // active game differs from the row's 'uno'
+  const out = await h.edit.editPlayer(row({ game: 'uno' }), 'Maya', '🦊');
+  assert.deepEqual(out.changed, ['emoji']);
+  assert.deepEqual(h.calls, [
+    ['remove', 'p_maya'],
+    ['put', 'p_maya', { name: 'Maya', emoji: '🦊', game: 'uno' }]
+  ]);
+
+  const failed = harness({ activeGameId: 'solo', putFails: true });
+  await assert.rejects(failed.edit.editPlayer(row({ game: 'uno' }), 'Maya', '🦊'), /write failed/);
+  assert.deepEqual(failed.calls, [
+    ['remove', 'p_maya'],
+    ['put', 'p_maya', { name: 'Maya', emoji: '🦊', game: 'uno' }],
+    ['put', 'p_maya', { name: 'Maya', emoji: '🐱', game: 'uno' }]
+  ]);
 });
 
 test('no-op edit changes nothing and writes nothing', async () => {

@@ -246,6 +246,7 @@
         color: profile.color || colourFor(profile.id),
         games: 0,
         wins: 0,
+        game: typeof profile.game === 'string' && profile.game ? profile.game : 'solo',
         counts: {},
         gamesByName: {},
         fromPool: true
@@ -313,6 +314,7 @@
         color: row.color,
         games: row.games,
         wins: row.wins,
+        game: row.game,
         fromPool: row.fromPool,
         favourite: favourite
       };

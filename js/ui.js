@@ -1794,7 +1794,7 @@
         ui.addTarget = 'edit-person';
         ui.editRow = {
           key: row.key, name: row.name, emoji: row.emoji,
-          games: row.games, fromPool: row.fromPool
+          games: row.games, fromPool: row.fromPool, game: row.game
         };
         ui.addName = row.name;
         ui.addEmoji = row.emoji;
