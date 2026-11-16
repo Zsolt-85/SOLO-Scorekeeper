@@ -770,3 +770,37 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
   flex-shrink: 0;
   font-size: 0.66rem; padding: 0.28rem 0.6rem;
 }
+
+/* ============================================================
+   MOBILE SYSTEM — foundation (phone-first; deliberately overrides
+   the stacked historical makeup-pass rules above)
+   ============================================================ */
+:root { --gutter: 16px; --gap: 12px; }
+
+.btn { white-space: nowrap; font-size: 0.9rem; padding-inline: 0.8rem; }
+.wordmark, .tagline { white-space: nowrap; }
+.pr-who .nm, .board-row .who .nm, .tile-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  body { padding: 0; }
+  #app {
+    margin-left: 0;
+    padding: calc(var(--gutter) + env(safe-area-inset-top)) var(--gutter)
+             calc(3rem + env(safe-area-inset-bottom));
+  }
+  .view { max-width: none; padding-top: 1rem; }
+  .topbar { flex-wrap: nowrap; align-items: flex-start; }
+  .topbar-links { flex-wrap: nowrap; justify-content: flex-start; }
+}
+
+@media (max-width: 620px) {
+  .topbar { flex-direction: column; gap: 0.75rem; margin-bottom: 1.1rem; }
+  .topbar-links {
+    width: 100%;
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+    gap: 0.4rem;
+  }
+  .topbar-links .btn { width: 100%; padding-inline: 0.5rem; font-size: 0.85rem; }
+}
