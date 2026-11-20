@@ -157,15 +157,13 @@
   }
 
   function coverHtml(type, extraClass) {
-    if (!type) {
-      return '<div class="cover cover-pips generic' + (extraClass ? ' ' + extraClass : '')
-        + '"><span class="cover-face" aria-hidden="true">🎲</span>'
-        + '<span class="cover-label">A game</span></div>';
-    }
-    return '<div class="cover cover-' + escapeHtml(type.pattern) + (extraClass ? ' ' + extraClass : '')
-      + '" style="--cover:' + escapeHtml(type.colour) + '">'
-      + '<span class="cover-face" aria-hidden="true">' + escapeHtml(type.emoji) + '</span>'
-      + '<span class="cover-label">' + escapeHtml(type.name) + '</span></div>';
+    const art = typeof CoverArt !== 'undefined' && CoverArt
+      ? CoverArt.svg(type)
+      : '<svg class="cover-art" viewBox="0 0 200 260"><rect width="200" height="260"'
+        + ' fill="#111428"/><circle cx="100" cy="120" r="70" fill="#f0b429" opacity=".3"/></svg>';
+    return '<div class="cover' + (extraClass ? ' ' + extraClass : '') + '">'
+      + art + '<span class="cover-label">'
+      + escapeHtml(type && type.name ? type.name : 'A game') + '</span></div>';
   }
 
   // Best-effort: registering a name and freezing a finished game. Failures land in
@@ -598,10 +596,10 @@
   function libraryHeader() {
     const table = space ? space.status() : null;
     return '<header class="topbar library-topbar"><div>'
-      + '<h1 class="wordmark">SCORELOCK</h1>'
+      + '<h1 class="wordmark">Your games</h1>'
       + '<p class="tagline">' + (table
         ? escapeHtml(table.name || 'Live table') + ' · ' + codeChip(table.code)
-        : 'Pick a game from the shelf') + '</p></div>'
+        : 'Pick one and start a round') + '</p></div>'
       + '<nav class="topbar-links">'
       + '<a class="btn ghost" href="#/library">Library</a>'
       + '<a class="btn ghost" href="#/rules">How to play</a>'
@@ -644,31 +642,34 @@
     const tableType = table ? (space.getType(table.game) || space.getActiveType()) : null;
     let html = libraryHeader();
 
+    let stripType = table ? tableType : (active ? typeForGame(active) : backend.getActiveType());
+    let stripLabel = 'Ready when you are';
+    let stripTitle = 'Open a game to start';
+    let stripHint = 'Pick a game from the shelf below.';
+    let stripButton = '';
     if (table && !table.tableReady) {
-      html += '<section class="hero joining"><p class="label">Joining live table</p>'
-        + codeChip(table.code) + '<p class="hint">Waiting for the table&rsquo;s game&hellip;</p></section>';
+      stripLabel = 'Joining live table';
+      stripTitle = 'Waiting for the game';
+      stripHint = codeChip(table.code);
     } else if (table) {
-      html += '<section class="hero"><div>' + coverHtml(tableType, 'hero-cover')
-        + '</div><div class="hero-copy"><p class="label">Live table</p>'
-        + '<h2>' + escapeHtml(tableType ? tableType.name : 'Shared game') + '</h2>'
-        + '<p class="hint">' + codeChip(table.code) + ' · ' + table.online + ' here</p>'
-        + '<button type="button" class="btn primary" data-action="open-box" data-id="'
-        + escapeHtml(table.game) + '">Resume table</button></div></section>';
+      stripLabel = 'Live table';
+      stripTitle = tableType ? tableType.name : 'Shared game';
+      stripHint = codeChip(table.code) + ' · ' + table.online + ' here';
+      stripButton = '<button type="button" class="btn primary" data-action="open-box" data-id="'
+        + escapeHtml(table.game) + '">Resume</button>';
     } else if (active) {
-      const type = typeForGame(active);
-      html += '<section class="hero"><div>' + coverHtml(type, 'hero-cover')
-        + '</div><div class="hero-copy"><p class="label">Continue</p>'
-        + '<h2>' + escapeHtml(gameName(active)) + '</h2>'
-        + '<p class="hint">Round ' + (active.rounds.length + 1) + ' · '
-        + escapeHtml(active.seats.map(function (seat) { return seat.name; }).join(' · ')) + '</p>'
-        + '<button type="button" class="btn primary" data-action="resume-game" data-id="'
-        + escapeHtml(active.id) + '">Resume game</button></div></section>';
-    } else {
-      const type = backend.getActiveType();
-      html += '<section class="hero quiet"><div>' + coverHtml(type, 'hero-cover')
-        + '</div><div class="hero-copy"><p class="label">Ready when you are</p>'
-        + '<h2>Open a game to start</h2><p class="hint">Pick any game on the shelf below, or start a table from its page.</p></div></section>';
+      stripLabel = 'Continue · Round ' + (active.rounds.length + 1);
+      stripTitle = gameName(active);
+      stripHint = escapeHtml(active.seats.map(function (seat) { return seat.name; }).join(' · '));
+      stripButton = '<button type="button" class="btn primary" data-action="resume-game" data-id="'
+        + escapeHtml(active.id) + '">Resume</button>';
     }
+    html += '<section class="continue-strip">'
+      + '<div class="strip-art">' + coverHtml(stripType, 'strip-cover') + '</div>'
+      + '<div class="strip-copy"><p class="label">' + stripLabel + '</p>'
+      + '<h2>' + escapeHtml(stripTitle) + '</h2>'
+      + '<p class="hint">' + stripHint + '</p></div>'
+      + stripButton + '</section>';
 
     html += '<section class="section"><div class="section-head"><h2>Shelf</h2>'
       + '<button type="button" class="btn ghost" data-action="open-new-game">Add a game</button></div>'

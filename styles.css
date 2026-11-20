@@ -972,3 +972,63 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
 .history-open { color: #6ec1ff; font-size: 0.8rem; }
 @media (min-width: 760px) { .history-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1120px) { .history-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* LIBRARY ART REDRAW — compact strip and illustrated pocket-sized shelf */
+#view-library .topbar { margin-bottom: 0.9rem; }
+.continue-strip {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.6rem; margin-bottom: 1.1rem;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; min-height: 74px;
+}
+.strip-art { flex: 0 0 42px; width: 42px; height: 56px; }
+.strip-art .cover { width: 42px; height: 56px; border-radius: 8px; border: 0; }
+.strip-copy { flex: 1 1 auto; min-width: 0; }
+.strip-copy h2 {
+  font-size: 1rem; line-height: 1.2; margin: 0.15rem 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.strip-copy .label { margin: 0; color: var(--gold); font-size: 0.62rem; }
+.strip-copy .hint { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.continue-strip > .btn { flex: 0 0 auto; min-height: 44px; padding-inline: 0.8rem; font-size: 0.85rem; }
+#view-library .shelf {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem; margin-top: 0.85rem;
+}
+#view-library .box-card {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  padding: 0.35rem 0.35rem 0.55rem; min-height: 0;
+  border-radius: 14px; background: transparent; border-color: rgba(255,255,255,0.08);
+}
+#view-library .box-card:hover { border-color: var(--gold); box-shadow: none; }
+#view-library .box-card .cover {
+  width: 100%; aspect-ratio: 3 / 4; border-radius: 11px;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.cover { position: relative; overflow: hidden; background: #111428; }
+.cover-art { display: block; width: 100%; height: 100%; }
+.cover-label {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 1.4rem 0.5rem 0.45rem;
+  background: linear-gradient(transparent, rgba(13,16,32,0.92));
+  color: #f2f3ff; font-size: 0.82rem; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.strip-art .cover-label { display: none; }
+#view-library .box-chips { margin-top: 0.1rem; gap: 0.25rem; }
+#view-library .chip { font-size: 0.62rem; padding: 0.12rem 0.4rem; }
+#view-library .box-meta { margin-top: 0; font-size: 0.66rem; }
+#view-library .add-box {
+  display: grid; place-items: center; align-content: center; gap: 0.4rem;
+  border-style: dashed; aspect-ratio: 3 / 4; min-height: 0;
+}
+@media (max-width: 620px) {
+  .continue-strip .btn { min-width: 44px; }
+  .strip-copy .hint { max-width: 46vw; }
+}
+@media (min-width: 760px) {
+  #view-library .shelf { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 1040px) {
+  #view-library .shelf { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
