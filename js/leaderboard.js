@@ -406,6 +406,8 @@
       winners: winners.map(function (entry) { return String(entry.seat.name || ''); }),
       winnerTotal: winnerTotal,
       margin: margin,
+      rounds: Array.isArray(match.rounds) ? match.rounds.length : 0,
+      players: ranked.length,
       standings: ranked.map(function (entry) {
         return {
           name: String(entry.seat.name || ''), emoji: String(entry.seat.emoji || ''),

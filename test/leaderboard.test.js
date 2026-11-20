@@ -429,6 +429,8 @@ test('cardData handles a clear win, a lowest-wins margin, a tie and most-wins', 
   assert.equal(card.winnerTotal, 8);
   assert.equal(card.margin, 13);
   assert.equal(card.standings.length, 2);
+  assert.equal(card.players, 2);
+  assert.equal(card.rounds, 1);
   assert.equal(typeof card.dateLabel, 'string');
 
   const tied = game({ rounds: [{ id: 'r1', at: 15, points: { s1: 7, s2: 7 } }] });
