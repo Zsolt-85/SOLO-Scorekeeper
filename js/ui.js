@@ -34,7 +34,8 @@
     showArchived: false, newGame: null, newGameError: '', newGameBusy: false,
     houseError: '', houseNotice: '', joinCode: '', joining: false, leaving: false,
     rosterFilter: '', firstPick: null, rivalsKey: null,
-    victoryGameId: null, historyResultId: null, historyCardData: null
+    victoryGameId: null, historyResultId: null, historyCardData: null,
+    lastAnimatedRoute: null
   };
 
   const themeState = typeof Themes !== 'undefined'
@@ -533,6 +534,15 @@
       ui.boardKey = null;
     }
     refreshBanner();
+    // Animate only on real navigation — board updates and form re-renders keep
+    // the same route key and must not flicker.
+    if (ui.lastAnimatedRoute !== routeKey && views[route.name]) {
+      const view = views[route.name];
+      view.classList.remove('route-enter');
+      void view.offsetWidth;
+      view.classList.add('route-enter');
+      ui.lastAnimatedRoute = routeKey;
+    }
     } catch (error) {
       // Even if some handler somewhere swallows this, the screen reports it.
       showCrash(error);
@@ -2559,4 +2569,29 @@ else if (action === 'open-new-game') openNewGame();
   } else {
     render();
   }
+
+  // Premium hand-off: keep the inline splash up for a short beat while cached
+  // shell files are revalidated, then fade it away. No forced reload.
+  (function finishSplash() {
+    const splash = document.getElementById('splash');
+    if (!splash) return;
+    const reduce = Boolean(window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const wait = reduce
+      ? Promise.resolve()
+      : new Promise(function (resolve) { setTimeout(resolve, 720); });
+    // A slow/offline shell check must never hold the app behind the splash.
+    const revalidate = Promise.race([
+      (typeof revalidateShell === 'function'
+        ? revalidateShell() : Promise.resolve()).catch(function () { return null; }),
+      new Promise(function (resolve) { setTimeout(resolve, 1500); })
+    ]);
+    Promise.all([wait, revalidate]).then(function () {
+      splash.dataset.done = '1';
+      splash.classList.add('splash-out');
+      setTimeout(function () {
+        if (splash.parentNode) splash.remove();
+      }, reduce ? 0 : 460);
+    });
+  })();
 })();

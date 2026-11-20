@@ -9,6 +9,15 @@
 <script>Themes.applyTheme(document, Themes.loadTheme(window.localStorage));</script>
 </head>
 <body>
+<div id="splash" class="splash" aria-hidden="true">
+  <div class="splash-inner">
+    <div class="splash-mark">🎲</div>
+    <div class="splash-name">SCORELOCK</div>
+    <div class="splash-line"></div>
+    <div class="splash-note">Preparing your table…</div>
+  </div>
+</div>
+<script>setTimeout(function(){var s=document.getElementById('splash');if(s&&!s.dataset.done){s.remove();}},3000);</script>
 <nav class="sidebar" aria-label="Main menu">
   <a class="sidebar-brand" href="#/library">SCORELOCK</a>
   <a class="sidebar-link" href="#/library">Library</a>
