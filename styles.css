@@ -1169,3 +1169,48 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
 }
 .btn:active:not(:disabled) { transform: scale(.98); }
 .sidebar-link:active { opacity: .7; }
+
+/* NAVIGATION CROSSFADE — old content leaves as new content arrives */
+#app { view-transition-name: app-view; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+::view-transition-old(app-view) { animation: vtOut 200ms cubic-bezier(.4,0,.7,.2) both; }
+::view-transition-new(app-view) { animation: vtIn 260ms cubic-bezier(.2,.8,.3,1) both; }
+@keyframes vtOut {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateX(-10px); }
+}
+@keyframes vtIn {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* PLAYERS — one calm action button instead of a button bar */
+@media (max-width: 620px) {
+  .pr-row {
+    grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1fr) auto 44px;
+    grid-template-areas: "disc who who pct actions";
+    gap: 0.4rem 0.55rem;
+  }
+  .pr-row > [data-action="open-player-actions"] { grid-area: actions; }
+  .pr-row .player-actions {
+    min-width: 44px; width: 44px; min-height: 44px; padding: 0;
+    border-radius: 12px; font-size: 1.1rem; color: var(--muted);
+  }
+  .pr-row .player-actions:hover, .pr-row .player-actions:focus-visible { color: var(--gold); }
+}
+.player-actions-list { display: grid; gap: 0.35rem; margin-top: 0.7rem; }
+.player-actions-list button {
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%; min-height: 48px; padding: 0.6rem 0.8rem;
+  text-align: left; font: inherit; font-size: 0.9rem;
+  color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+}
+.player-actions-list button:hover, .player-actions-list button:focus-visible { border-color: var(--gold); }
+.player-actions-list button.danger { color: var(--lose); }
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-line::after { animation: none; }
+  ::view-transition-old(app-view), ::view-transition-new(app-view) { animation: none; }
+}
+.btn.primary:active:not(:disabled), .btn:active:not(:disabled) { transform: scale(.98); }

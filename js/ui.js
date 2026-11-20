@@ -35,7 +35,7 @@
     houseError: '', houseNotice: '', joinCode: '', joining: false, leaving: false,
     rosterFilter: '', firstPick: null, rivalsKey: null,
     victoryGameId: null, historyResultId: null, historyCardData: null,
-    lastAnimatedRoute: null
+    lastAnimatedRoute: null, playerActionsKey: null
   };
 
   const themeState = typeof Themes !== 'undefined'
@@ -534,9 +534,10 @@
       ui.boardKey = null;
     }
     refreshBanner();
-    // Animate only on real navigation — board updates and form re-renders keep
-    // the same route key and must not flicker.
-    if (ui.lastAnimatedRoute !== routeKey && views[route.name]) {
+    // With View Transitions the whole #app crossfades; the fallback keeps the
+    // simple route-enter animation for browsers without that API.
+    const hasViewTransitions = typeof document.startViewTransition === 'function';
+    if (!hasViewTransitions && ui.lastAnimatedRoute !== routeKey && views[route.name]) {
       const view = views[route.name];
       view.classList.remove('route-enter');
       void view.offsetWidth;
@@ -1047,15 +1048,12 @@
       + '<span class="pr-who"><span class="nm">' + escapeHtml(row.name) + '</span>'
       + '<span class="board-record">' + record + '</span></span>'
       + '<span class="pr-den">' + pct + fav + '</span>'
-      + '<button type="button" class="btn ghost rm rivals-btn" data-action="open-rivals"'
-      + ' data-key="' + escapeHtml(row.key) + '" data-name="' + escapeHtml(row.name) + '"'
-      + ' aria-label="See ' + escapeHtml(row.name) + '\'s rivals">Rivals &rsaquo;</button>'
-      + '<button type="button" class="btn ghost rm" data-action="edit-person"'
-      + ' data-key="' + escapeHtml(row.key) + '" data-name="' + escapeHtml(row.name) + '"'
-      + ' aria-label="Edit ' + escapeHtml(row.name) + '">Edit</button>'
-      + '<button type="button" class="btn ghost rm" data-action="remove-person"'
-      + ' data-key="' + escapeHtml(row.key) + '" data-name="' + escapeHtml(row.name) + '"'
-      + ' aria-label="Remove ' + escapeHtml(row.name) + '">Remove</button></li>';
+      + '<button type="button" class="btn ghost icon-btn player-actions"'
+      + ' data-action="open-player-actions" data-key="' + escapeHtml(row.key) + '"'
+      + ' data-name="' + escapeHtml(row.name) + '"'
+      + ' aria-label="Actions for ' + escapeHtml(row.name) + '"'
+      + ' aria-haspopup="dialog" aria-expanded="'
+      + (ui.playerActionsKey === row.key ? 'true' : 'false') + '">&hellip;</button></li>';
   }
 
   // The Players-page roster, filtered the same way for rendering and for the
@@ -1127,6 +1125,34 @@
     return html;
   }
 
+  function playerActionsSheetHtml() {
+    const key = ui.playerActionsKey;
+    const data = boardData();
+    const profile = (data.pool || []).filter(function (p) { return p && p.id === key; })[0];
+    let name = profile ? profile.name : 'Player';
+    if (!profile) {
+      (data.results || []).some(function (result) {
+        const mine = (result.players || []).filter(function (p) { return p && p.key === key; })[0];
+        if (mine) { name = mine.name; return true; }
+        return false;
+      });
+    }
+    return '<div class="rivals-overlay" role="dialog" aria-label="Player actions">'
+      + '<div class="rivals-sheet player-actions-sheet"><div class="board-head"><h2>'
+      + escapeHtml(name) + '</h2><button type="button" class="btn ghost icon-btn"'
+      + ' id="player-actions-close" data-action="close-player-actions"'
+      + ' aria-label="Close player actions">&times;</button></div>'
+      + '<div class="player-actions-list">'
+      + '<button type="button" data-action="open-rivals" data-key="' + escapeHtml(key)
+      + '" data-name="' + escapeHtml(name) + '">⚔ &nbsp;Head-to-head records</button>'
+      + '<button type="button" data-action="edit-person" data-key="' + escapeHtml(key)
+      + '" data-name="' + escapeHtml(name) + '">✎ &nbsp;Edit player</button>'
+      + '<button type="button" class="danger" data-action="remove-person" data-key="'
+      + escapeHtml(key) + '" data-name="' + escapeHtml(name)
+      + '">⊘ &nbsp;Remove player</button>'
+      + '</div></div></div>';
+  }
+
   function rivalsSheetHtml() {
     const key = ui.rivalsKey;
     const data = boardData();
@@ -1171,6 +1197,7 @@
         + '<p class="hint">Add one here, or play a table &mdash; everyone who joins shows up here.</p></div>';
       if (ui.addPanelOpen) html += addPanelHtml();
       if (ui.rivalsKey) html += rivalsSheetHtml();
+      if (ui.playerActionsKey) html += playerActionsSheetHtml();
       if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
       return html;
     }
@@ -1183,6 +1210,7 @@
       + '<p class="muted">Removing a player takes them off your tables here. Their past results stay on the leaderboard.</p>';
     if (ui.addPanelOpen) html += addPanelHtml();
     if (ui.rivalsKey) html += rivalsSheetHtml();
+    if (ui.playerActionsKey) html += playerActionsSheetHtml();
     if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
     return html;
   }
@@ -1950,8 +1978,11 @@
     const key = ui.rivalsKey;
     ui.rivalsKey = null;
     render();
-    // The old button node was replaced by render(); find the new one by key.
-    const buttons = document.querySelectorAll('[data-action="open-rivals"]');
+    // The old button node was replaced by render(); Rivals is now opened from
+    // the player's ⋯ sheet, so return focus to that button by key.
+    const buttons = document.querySelectorAll(
+      '[data-action="open-player-actions"], [data-action="open-rivals"]'
+    );
     for (let i = 0; i < buttons.length; i += 1) {
       if (buttons[i].getAttribute('data-key') === key) { buttons[i].focus(); break; }
     }
@@ -2043,6 +2074,7 @@
     if (!trigger) return;
     const action = trigger.getAttribute('data-action');
     ui.addError = '';
+    if (action !== 'open-player-actions' && ui.playerActionsKey) ui.playerActionsKey = null;
     if (action === 'open-add') {
       ui.addPanelOpen = true;
       ui.addTarget = currentRoute().name === 'players' ? 'players' : 'roster';
@@ -2155,6 +2187,20 @@
         const pick = Ranking.pickFirst(game.seats, Math.random);
         if (pick) ui.firstPick = { name: pick.name, emoji: pick.emoji };
         render();
+      }
+    }
+    else if (action === 'open-player-actions') {
+      ui.playerActionsKey = trigger.getAttribute('data-key');
+      render();
+      focusById('player-actions-close');
+    }
+    else if (action === 'close-player-actions') {
+      const key = ui.playerActionsKey;
+      ui.playerActionsKey = null;
+      render();
+      const buttons = document.querySelectorAll('[data-action="open-player-actions"]');
+      for (let i = 0; i < buttons.length; i += 1) {
+        if (buttons[i].getAttribute('data-key') === key) { buttons[i].focus(); break; }
       }
     }
     else if (action === 'open-rivals') {
@@ -2486,6 +2532,7 @@ else if (action === 'open-new-game') openNewGame();
     ui.firstPick = null;
     ui.historyResultId = null;
     ui.historyCardData = null;
+    ui.playerActionsKey = null;
     // A card opened by finishing stays open on the podium it navigated to;
     // any other navigation clears it so old games never auto-open.
     const next = currentRoute();
@@ -2493,7 +2540,13 @@ else if (action === 'open-new-game') openNewGame();
       && !(next.name === 'podium' && next.id === ui.victoryGameId)) {
       ui.victoryGameId = null;
     }
-    render();
+    const update = function () { render(); };
+    if (typeof document.startViewTransition === 'function'
+      && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+      document.startViewTransition(update);
+    } else {
+      update();
+    }
   });
 
   function focusById(id) {
@@ -2503,6 +2556,7 @@ else if (action === 'open-new-game') openNewGame();
 
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') {
+      if (ui.playerActionsKey) { const k = ui.playerActionsKey; ui.playerActionsKey = null; render(); const bs = document.querySelectorAll('[data-action="open-player-actions"]'); for (let i = 0; i < bs.length; i += 1) { if (bs[i].getAttribute('data-key') === k) { bs[i].focus(); break; } } return; }
       if (ui.rivalsKey) { closeRivals(); return; }
       if (ui.historyResultId) { closeHistoryResult(); return; }
       if (ui.victoryGameId) { closeVictory(); }
@@ -2580,12 +2634,13 @@ else if (action === 'open-new-game') openNewGame();
     const wait = reduce
       ? Promise.resolve()
       : new Promise(function (resolve) { setTimeout(resolve, 720); });
-    // A slow/offline shell check must never hold the app behind the splash.
-    const revalidate = Promise.race([
-      (typeof revalidateShell === 'function'
-        ? revalidateShell() : Promise.resolve()).catch(function () { return null; }),
-      new Promise(function (resolve) { setTimeout(resolve, 1500); })
-    ]);
+    const revalidate = reduce
+      ? Promise.resolve()
+      : Promise.race([
+        (typeof revalidateShell === 'function'
+          ? revalidateShell() : Promise.resolve()).catch(function () { return null; }),
+        new Promise(function (resolve) { setTimeout(resolve, 900); })
+      ]);
     Promise.all([wait, revalidate]).then(function () {
       splash.dataset.done = '1';
       splash.classList.add('splash-out');
