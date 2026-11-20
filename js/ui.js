@@ -2543,7 +2543,15 @@ else if (action === 'open-new-game') openNewGame();
     const update = function () { render(); };
     if (typeof document.startViewTransition === 'function'
       && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
-      document.startViewTransition(update);
+      const transition = document.startViewTransition(update);
+      // Redirect routes can start a second transition while this one is still
+      // pending; the browser then rejects `ready`. That is normal, not a crash.
+      if (transition && transition.ready && typeof transition.ready.catch === 'function') {
+        transition.ready.catch(function () {});
+      }
+      if (transition && transition.finished && typeof transition.finished.catch === 'function') {
+        transition.finished.catch(function () {});
+      }
     } else {
       update();
     }
