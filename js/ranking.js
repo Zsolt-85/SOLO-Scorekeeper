@@ -97,6 +97,24 @@
     return { wins: wins, losses: losses };
   }
 
+  // The running total is the sum of every round, so the small number under a
+  // score tile is simply what the last saved round contributed for that seat.
+  function lastRoundDelta(game, seatId) {
+    const rounds = (game && game.rounds) || [];
+    if (!rounds.length) return null;
+    const last = rounds[rounds.length - 1];
+    const value = last && last.points ? last.points[seatId] : undefined;
+    return Number.isFinite(value) ? value : null;
+  }
+
+  // Injectable randomness keeps the "who goes first" roll testable.
+  function pickFirst(seats, random) {
+    if (!Array.isArray(seats) || !seats.length) return null;
+    const roll = typeof random === 'function' ? random() : Math.random();
+    const index = Math.max(0, Math.min(seats.length - 1, Math.floor(roll * seats.length)));
+    return seats[index];
+  }
+
   const Ranking = {
     totalsFor: totalsFor,
     rank: rank,
@@ -104,7 +122,9 @@
     directionFor: directionFor,
     limitFor: limitFor,
     limitReached: limitReached,
-    seatForPlayer: seatForPlayer
+    seatForPlayer: seatForPlayer,
+    lastRoundDelta: lastRoundDelta,
+    pickFirst: pickFirst
   };
   global.Ranking = Ranking;
   if (typeof module !== 'undefined' && module.exports) module.exports = Ranking;

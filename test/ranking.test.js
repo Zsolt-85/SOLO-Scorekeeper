@@ -245,3 +245,19 @@ test('limitReached is false without a limit or rounds', () => {
     rules: { winner: 'lowest', end: { type: 'manual' } }
   }), false);
 });
+
+test('lastRoundDelta returns the last round points and null when absent', () => {
+  const g = game([[2, 10], [5, 3]]);
+  assert.equal(Ranking.lastRoundDelta(g, 's0'), 5);
+  assert.equal(Ranking.lastRoundDelta(g, 's1'), 3);
+  assert.equal(Ranking.lastRoundDelta({ seats: g.seats, rounds: [] }, 's0'), null);
+  const partial = { seats: g.seats, rounds: [{ id: 'r0', points: { s0: 2 } }] };
+  assert.equal(Ranking.lastRoundDelta(partial, 's1'), null);
+});
+
+test('pickFirst uses injectable randomness and handles empty rosters', () => {
+  const seats = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  assert.equal(Ranking.pickFirst(seats, () => 0), seats[0]);
+  assert.equal(Ranking.pickFirst(seats, () => 0.999), seats[2]);
+  assert.equal(Ranking.pickFirst([], () => 0.5), null);
+});
