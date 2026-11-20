@@ -1533,14 +1533,16 @@
       + '<div class="skin-grid">' + skins.map(function (skin) {
         const selected = themeState.skin === skin.id;
         return '<button type="button" class="skin-card' + (selected ? ' selected' : '') + '"'
-          + ' data-action="set-skin" data-skin="' + escapeHtml(skin.id) + '">'
+          + ' data-action="set-skin" data-skin="' + escapeHtml(skin.id) + '"'
+          + ' aria-pressed="' + (selected ? 'true' : 'false') + '">'
           + '<span class="skin-preview skin-' + escapeHtml(skin.id) + '">'
           + '<span class="skin-mini">' + escapeHtml(skin.name) + '</span></span>'
           + '<span class="skin-name">' + escapeHtml(skin.name) + (selected ? ' ✓' : '') + '</span>'
           + '<span class="skin-desc">' + escapeHtml(skin.desc) + '</span></button>';
       }).join('') + '</div>'
       + '<div class="settings-row"><span>Surface glow</span>'
-      + '<button type="button" class="btn ghost" data-action="toggle-glow">'
+      + '<button type="button" class="btn ghost" data-action="toggle-glow"'
+      + ' aria-label="Surface glow" aria-pressed="' + (themeState.glow ? 'true' : 'false') + '">'
       + (themeState.glow ? 'On' : 'Off') + '</button></div>'
       + '</section>';
     return html;
@@ -2247,7 +2249,13 @@ else if (action === 'open-new-game') openNewGame();
       if (space) leaveLobby();
       ui.lobbyForm = 'join';
       ui.addError = '';
-      render();
+      // The join sheet is rendered by the Library view — go there first when
+      // the action is triggered from the global menu on any other screen.
+      if (currentRoute().name !== 'library') {
+        navigate('library');
+      } else {
+        render();
+      }
       focusById('lobby-code');
     }
     else if (action === 'new-game-preset') {

@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SCORELOCK — Scorekeeper</title>
 <link rel="stylesheet" href="styles.css">
+<script src="js/themes.js"></script>
+<script>Themes.applyTheme(document, Themes.loadTheme(window.localStorage));</script>
 </head>
 <body>
-<nav class="sidebar" aria-label="Library">
+<nav class="sidebar" aria-label="Main menu">
   <a class="sidebar-brand" href="#/library">SCORELOCK</a>
   <a class="sidebar-link" href="#/library">Library</a>
   <a class="sidebar-link" href="#/leaderboard">Leaderboard</a>
@@ -46,7 +48,6 @@
 <script src="js/sync.js"></script>
 <script src="js/pool-edit.js"></script>
 <script src="js/reveal.js"></script>
-<script src="js/themes.js"></script>
 <script src="js/cover-art.js"></script>
 <script>/* sidebar auto-close */ (function(){const s=document.querySelector('.sidebar');if(s){document.querySelectorAll('.sidebar-link,.sidebar-brand').forEach(a=>a.addEventListener('click',()=>s.classList.remove('open')));document.addEventListener('click',e=>{if(s.classList.contains('open')&&!s.contains(e.target)&&!e.target.closest('.hamburger'))s.classList.remove('open');});}})();</script>
 <script src="js/ui.js"></script>
