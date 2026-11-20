@@ -1122,46 +1122,76 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
   .skin-card, .skin-card.selected { transition: none; }
 }
 
-/* PREMIUM MOTION — startup splash and route transitions */
+/* PREMIUM MOTION — parchment tap-to-start splash and route transitions */
 .splash {
   position: fixed; inset: 0; z-index: 9999;
-  display: grid; place-items: center; text-align: center;
-  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--gold) 10%, transparent), transparent 60%), var(--bg);
-  transition: opacity 420ms ease, visibility 420ms ease;
+  display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 18%, #fffaf0 0%, #f5e9cf 55%, #e8d6b0 100%);
+  color: #3a2e1f;
+  transition: opacity 460ms ease, visibility 460ms ease;
 }
+.splash::before, .splash::after {
+  content: "♠  ♥  ♦  ♣    ♠  ♥  ♦  ♣";
+  position: absolute; inset: -12%;
+  font: 700 76px/1.7 Georgia, serif; letter-spacing: .5em;
+  white-space: pre-wrap; pointer-events: none;
+  color: rgba(120, 86, 45, .055);
+  transform: rotate(-18deg);
+}
+.splash::after { transform: rotate(21deg) scale(1.18); color: rgba(120, 86, 45, .035); }
 .splash.splash-out { opacity: 0; visibility: hidden; pointer-events: none; }
-.splash-inner { display: grid; justify-items: center; padding: 2rem; }
-.splash-mark {
-  width: 76px; height: 76px; border-radius: 22px;
-  display: grid; place-items: center; font-size: 36px;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--gold) 88%, white), var(--gold));
-  box-shadow: 0 16px 40px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.35);
-  animation: splashPop 560ms cubic-bezier(.2,.8,.3,1) both;
+.splash-inner {
+  position: relative; z-index: 1;
+  width: min(390px, 92vw); padding: 2rem 1.5rem;
+  display: grid; justify-items: center; text-align: center;
 }
-.splash-name {
-  margin-top: 18px; font-size: 1.3rem; font-weight: 800;
-  letter-spacing: .16em; color: var(--gold);
-  animation: splashFade 500ms 100ms ease-out both;
+.splash-mark { width: 108px; height: 82px; animation: splashPop 560ms cubic-bezier(.2,.8,.3,1) both; }
+.splash-title {
+  margin: 14px 0 0; font: 700 2rem/1.1 Georgia, serif; color: #3a2e1f;
+  animation: splashFade 480ms 80ms ease-out both;
 }
-.splash-line {
-  width: 150px; height: 2px; margin-top: 16px;
-  background: var(--line); border-radius: 2px; overflow: hidden;
+.splash-tagline {
+  margin: 12px 0 0; font-size: 1rem; line-height: 1.45; color: #5d4a32;
+  animation: splashFade 480ms 130ms ease-out both;
 }
-.splash-line::after {
-  content: ""; display: block; width: 42%; height: 100%;
-  background: var(--gold); border-radius: 2px;
-  animation: splashSweep 1s ease-in-out infinite;
+.splash-games {
+  list-style: none; margin: 28px 0 0; padding: 0;
+  width: 100%; max-width: 300px; display: grid; gap: 10px; text-align: left;
 }
-.splash-note {
-  margin-top: 12px; color: var(--muted); font-size: .78rem;
-  animation: splashFade 500ms 180ms ease-out both;
+.splash-games li {
+  display: flex; align-items: center; gap: 12px;
+  font-size: .98rem; font-weight: 600; color: #3a2e1f;
+  animation: splashFade 420ms ease-out both;
+}
+.splash-games li:nth-child(2) { animation-delay: 60ms; }
+.splash-games li:nth-child(3) { animation-delay: 120ms; }
+.splash-games li:nth-child(4) { animation-delay: 180ms; }
+.splash-game-icon {
+  width: 36px; height: 36px; border-radius: 10px; flex: none;
+  display: grid; place-items: center; font-size: 1.2rem;
+  background: rgba(255, 255, 255, .62); border: 1px solid rgba(120, 86, 45, .22);
+}
+.splash-start {
+  margin-top: 34px; width: 100%; max-width: 320px; min-height: 54px;
+  border: 0; border-radius: 999px; cursor: pointer;
+  background: #4a3a28; color: #fff7e6;
+  font: inherit; font-size: 1rem; font-weight: 700;
+  box-shadow: 0 12px 26px rgba(74, 58, 40, .3);
+  animation: splashFade 480ms 220ms ease-out both;
+}
+.splash-start:hover { background: #382b1c; }
+.splash-start:disabled { opacity: .7; }
+.splash-start:focus-visible { outline: 3px solid #8d6435; outline-offset: 3px; }
+.splash-spinner {
+  width: 26px; height: 26px; margin-top: 18px; border-radius: 50%;
+  border: 2px solid rgba(120, 86, 45, .25); border-top-color: #8d6435;
+  animation: spin 900ms linear infinite;
 }
 @keyframes splashPop {
   from { opacity: 0; transform: scale(.86) translateY(8px); }
   to { opacity: 1; transform: none; }
 }
 @keyframes splashFade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
-@keyframes splashSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
 .view.route-enter { animation: routeIn 200ms cubic-bezier(.2,.8,.3,1) both; }
 @keyframes routeIn {
   from { opacity: 0; transform: translateY(8px); }
@@ -1210,7 +1240,7 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
 .player-actions-list button.danger { color: var(--lose); }
 
 @media (prefers-reduced-motion: reduce) {
-  .splash-line::after { animation: none; }
+  .splash-spinner { animation: none; }
   ::view-transition-old(app-view), ::view-transition-new(app-view) { animation: none; }
 }
 .btn.primary:active:not(:disabled), .btn:active:not(:disabled) { transform: scale(.98); }

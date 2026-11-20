@@ -2632,16 +2632,27 @@ else if (action === 'open-new-game') openNewGame();
     render();
   }
 
-  // Premium hand-off: keep the inline splash up for a short beat while cached
-  // shell files are revalidated, then fade it away. No forced reload.
+  // Tap-to-start splash: show the real library, start the update check now, and
+  // leave only when the user taps the button (every load/reload).
   (function finishSplash() {
     const splash = document.getElementById('splash');
     if (!splash) return;
     const reduce = Boolean(window.matchMedia
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    const wait = reduce
-      ? Promise.resolve()
-      : new Promise(function (resolve) { setTimeout(resolve, 720); });
+    const list = document.getElementById('splash-games');
+    const visible = shelfOrder((backend.getLibrary() || []).filter(function (type) {
+      return !type.archived;
+    }));
+    if (list) {
+      list.innerHTML = visible.slice(0, 3).map(function (type) {
+        return '<li><span class="splash-game-icon" aria-hidden="true">'
+          + escapeHtml(type.emoji || '🃏') + '</span><span>'
+          + escapeHtml(type.name) + '</span></li>';
+      }).join('') + (visible.length > 3
+        ? '<li><span class="splash-game-icon" aria-hidden="true">🎲</span>'
+          + '<span>Custom Games</span></li>'
+        : '');
+    }
     const revalidate = reduce
       ? Promise.resolve()
       : Promise.race([
@@ -2649,12 +2660,24 @@ else if (action === 'open-new-game') openNewGame();
           ? revalidateShell() : Promise.resolve()).catch(function () { return null; }),
         new Promise(function (resolve) { setTimeout(resolve, 900); })
       ]);
-    Promise.all([wait, revalidate]).then(function () {
+    function dismiss() {
       splash.dataset.done = '1';
       splash.classList.add('splash-out');
       setTimeout(function () {
         if (splash.parentNode) splash.remove();
+        const menu = document.querySelector('.hamburger');
+        if (menu && typeof menu.focus === 'function') menu.focus();
       }, reduce ? 0 : 460);
-    });
+    }
+    const start = document.getElementById('splash-start');
+    if (start) {
+      start.addEventListener('click', function () {
+        if (start.disabled) return;
+        start.disabled = true;
+        start.textContent = 'Setting the table…';
+        revalidate.then(dismiss);
+      });
+      start.focus();
+    }
   })();
 })();
