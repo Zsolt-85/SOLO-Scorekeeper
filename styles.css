@@ -816,16 +816,6 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
 .first-pick { color: var(--gold); font-size: 0.85rem; font-weight: 700; }
 .first-btn { min-height: 44px; }
 
-@media (max-width: 620px) {
-  .pr-row {
-    grid-template-columns: 48px repeat(3, minmax(0, 1fr)) auto;
-    grid-template-areas:
-      "disc who   who   who    pct"
-      "disc rivals edit remove remove";
-  }
-  .pr-row > [data-action="open-rivals"] { grid-area: rivals; }
-}
-
 .rivals-overlay, .victory-overlay {
   position: fixed; inset: 0; z-index: 200;
   display: flex; align-items: center; justify-content: center;
@@ -946,4 +936,16 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
   /* Secondary detail would crowd the record at 320px — keep the stats legible. */
   .pr-row .pr-fav { display: none; }
   .pr-row .board-record { font-size: 0.72rem; }
+}
+
+/* Must come after MOBILE SYSTEM's 4-column roster grid so the three-action
+   layout actually wins the cascade. */
+@media (max-width: 620px) {
+  .pr-row {
+    grid-template-columns: 48px repeat(3, minmax(0, 1fr)) auto;
+    grid-template-areas:
+      "disc who   who   who    pct"
+      "disc rivals edit remove remove";
+  }
+  .pr-row > [data-action="open-rivals"] { grid-area: rivals; }
 }

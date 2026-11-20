@@ -33,7 +33,7 @@
     boardError: '', boardNotice: '', boardLoadError: '',
     showArchived: false, newGame: null, newGameError: '', newGameBusy: false,
     houseError: '', houseNotice: '', joinCode: '', joining: false, leaving: false,
-    rosterFilter: '', firstPick: null, rivalsKey: null, rivalsTrigger: null,
+    rosterFilter: '', firstPick: null, rivalsKey: null,
     victoryGameId: null
   };
 
@@ -1155,7 +1155,7 @@
       });
     }
     const rows = Leaderboard.rivalries(data.results, key);
-    let html = '<div class="rivals-overlay" role="dialog" aria-modal="true" aria-label="Head-to-head records">'
+    let html = '<div class="rivals-overlay" role="dialog" aria-label="Head-to-head records">'
       + '<div class="rivals-sheet"><div class="board-head"><h2>' + escapeHtml(title)
       + ' · rivals</h2><button type="button" class="btn ghost icon-btn" id="rivals-close"'
       + ' data-action="close-rivals" aria-label="Close rivals">&times;</button></div>';
@@ -1756,7 +1756,7 @@
       + '<a class="btn ghost" href="#/box/' + escapeHtml(typeId) + '/log">Log</a></div></div>';
 
     if (ui.victoryGameId && ui.victoryGameId === target.id) {
-      html += '<div class="victory-overlay" role="dialog" aria-modal="true" aria-label="Victory card">'
+      html += '<div class="victory-overlay" role="dialog" aria-label="Victory card">'
         + '<div class="victory-sheet">'
         + '<canvas id="victory-canvas" width="900" height="1200" role="img"'
         + ' aria-label="Shareable scorecard for ' + escapeHtml(name) + '"></canvas>'
@@ -1890,11 +1890,14 @@
   }
 
   function closeRivals() {
-    const trigger = ui.rivalsTrigger;
+    const key = ui.rivalsKey;
     ui.rivalsKey = null;
-    ui.rivalsTrigger = null;
     render();
-    if (trigger && trigger.isConnected) trigger.focus();
+    // The old button node was replaced by render(); find the new one by key.
+    const buttons = document.querySelectorAll('[data-action="open-rivals"]');
+    for (let i = 0; i < buttons.length; i += 1) {
+      if (buttons[i].getAttribute('data-key') === key) { buttons[i].focus(); break; }
+    }
   }
 
   function closeVictory() {
@@ -2077,7 +2080,6 @@
     }
     else if (action === 'open-rivals') {
       ui.rivalsKey = trigger.getAttribute('data-key');
-      ui.rivalsTrigger = trigger;
       render();
       focusById('rivals-close');
     }
@@ -2386,8 +2388,14 @@ else if (action === 'open-new-game') openNewGame();
     ui.boardEmoji = EMOJI[0];
     ui.rosterFilter = '';
     ui.rivalsKey = null;
-    ui.rivalsTrigger = null;
     ui.firstPick = null;
+    // A card opened by finishing stays open on the podium it navigated to;
+    // any other navigation clears it so old games never auto-open.
+    const next = currentRoute();
+    if (ui.victoryGameId
+      && !(next.name === 'podium' && next.id === ui.victoryGameId)) {
+      ui.victoryGameId = null;
+    }
     render();
   });
 
@@ -2397,9 +2405,27 @@ else if (action === 'open-new-game') openNewGame();
   }
 
   document.addEventListener('keydown', function (event) {
-    if (event.key !== 'Escape') return;
-    if (ui.rivalsKey) { closeRivals(); return; }
-    if (ui.victoryGameId) { closeVictory(); }
+    if (event.key === 'Escape') {
+      if (ui.rivalsKey) { closeRivals(); return; }
+      if (ui.victoryGameId) { closeVictory(); }
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const dialog = document.querySelector('.rivals-overlay, .victory-overlay');
+    if (!dialog) return;
+    const controls = Array.prototype.slice.call(
+      dialog.querySelectorAll('button:not([disabled]), a[href], input:not([disabled])')
+    );
+    if (!controls.length) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (!dialog.contains(document.activeElement)) {
+      event.preventDefault(); first.focus();
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first.focus();
+    }
   });
 
   function focusName() {
