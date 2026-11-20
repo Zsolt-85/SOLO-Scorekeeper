@@ -34,7 +34,7 @@
     showArchived: false, newGame: null, newGameError: '', newGameBusy: false,
     houseError: '', houseNotice: '', joinCode: '', joining: false, leaving: false,
     rosterFilter: '', firstPick: null, rivalsKey: null,
-    victoryGameId: null
+    victoryGameId: null, historyResultId: null, historyCardData: null
   };
 
   const views = {
@@ -47,6 +47,7 @@
     friends: document.getElementById('view-friends'),
     community: document.getElementById('view-community'),
     leaderboard: document.getElementById('view-leaderboard'),
+    history: document.getElementById('view-history'),
     players: document.getElementById('view-players')
   };
   const banner = document.getElementById('banner');
@@ -462,11 +463,6 @@
     try {
     const route = currentRoute();
     if (route.name === 'home') { navigate('library'); return; }
-    if (route.name === 'history') {
-      const active = backend.getActiveType();
-      navigate('box/' + (active ? active.id : 'solo') + '/log');
-      return;
-    }
     if (route.name === 'game' && route.id) { navigate('play/' + route.id); return; }
     if (route.name === 'new-game' && space) { navigate('library'); return; }
     if (route.name === 'box') {
@@ -499,6 +495,10 @@
     if (route.name === 'library') views.library.innerHTML = renderLibrary();
     if (route.name === 'new-game') views['new-game'].innerHTML = renderNewGame();
     if (route.name === 'leaderboard') views.leaderboard.innerHTML = renderLeaderboard(route.id);
+    if (route.name === 'history') {
+      views.history.innerHTML = renderHistory();
+      if (ui.historyResultId) drawVictoryCard(ui.historyCardData);
+    }
     if (route.name === 'players') views.players.innerHTML = renderPlayers();
     if (route.name === 'box') views.box.innerHTML = renderBox(route.id, route.tab || 'table');
     if (route.name === 'play') views.play.innerHTML = renderGame(route.id);
@@ -522,8 +522,9 @@
       // fetch like the other pages — otherwise fresh sessions show only locals.
       const key = 'box-table/' + route.id;
       if (ui.boardKey !== key) { ui.boardKey = key; loadBoard(); }
-    } else if (route.name === 'leaderboard' || route.name === 'players') {
-      // One fetch per visit; both pages render from the same loaded board.
+    } else if (route.name === 'leaderboard' || route.name === 'players'
+      || route.name === 'history') {
+      // One fetch per visit; these pages share the same loaded board.
       if (ui.boardKey !== 'board') { ui.boardKey = 'board'; loadBoard(); }
     } else {
       ui.boardKey = null;
@@ -1142,6 +1143,55 @@
     return Leaderboard.allPlayers(pool, results);
   }
 
+  function historyCardHtml(result) {
+    const card = Leaderboard.resultCardData(result);
+    const headline = card.winners.length > 1
+      ? card.winners.join(' & ') + ' share the win'
+      : (card.winners[0] || 'Game') + ' wins';
+    return '<li><button type="button" class="history-card"'
+      + ' data-action="open-history-result" data-id="' + escapeHtml(result.id) + '">'
+      + '<span class="label">' + escapeHtml(card.gameName) + ' · ' + escapeHtml(card.dateLabel) + '</span>'
+      + '<span class="history-winner">' + escapeHtml(headline) + '</span>'
+      + '<span class="history-total">' + card.winnerTotal + '<small> pts</small></span>'
+      + '<span class="history-bars">' + card.standings.map(function (row, i) {
+        return '<span class="history-bar" style="height:' + Math.max(18, 54 - i * 5) + 'px;'
+          + 'background:' + escapeHtml(row.isWinner ? '#f0b429' : '#39406e') + '"></span>';
+      }).join('') + '</span>'
+      + '<span class="history-avatars">' + card.standings.map(function (row) {
+        return escapeHtml(row.emoji || '');
+      }).join('') + '</span>'
+      + '<span class="history-open">View result &rsaquo;</span>'
+      + '</button></li>';
+  }
+
+  function renderHistory() {
+    const data = boardData();
+    const results = (data.results || []).filter(function (result) { return result && result.id; })
+      .slice().sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+    let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">History</h1>'
+      + '<p class="tagline">Your game nights, as cards</p></div>'
+      + '<nav class="topbar-links"><a class="btn ghost" href="#/leaderboard">Leaderboard</a></nav></header>';
+    if (data.fallback) html += '<p class="muted">Showing games saved on this device.</p>';
+    if (!results.length) {
+      return html + '<div class="empty-state"><p>No finished games yet.</p>'
+        + '<p class="hint">Play a game and it will appear here.</p></div>';
+    }
+    html += '<ul class="history-grid">' + results.map(historyCardHtml).join('') + '</ul>';
+    if (ui.historyResultId) {
+      html += '<div class="victory-overlay" role="dialog" aria-label="Game result">'
+        + '<div class="victory-sheet">'
+        + '<canvas id="victory-canvas" width="900" height="1120" role="img"'
+        + ' aria-label="Shareable scorecard"></canvas>'
+        + '<div class="row"><button type="button" class="btn primary"'
+        + ' data-action="share-victory">Share card</button>'
+        + '<button type="button" class="btn ghost" id="victory-close"'
+        + ' data-action="close-history-result">Close (Esc)</button></div>'
+        + '<p class="hint">Tallest bar = winner · scores on top.</p>'
+        + '</div></div>';
+    }
+    return html;
+  }
+
   function rivalsSheetHtml() {
     const key = ui.rivalsKey;
     const data = boardData();
@@ -1468,7 +1518,8 @@
   function repaintBoardRoute() {
     const route = currentRoute();
     if (route.name === 'box' && (!route.tab || route.tab === 'table' || route.tab === 'hall')) render();
-    if (route.name === 'leaderboard' || route.name === 'players') render();
+    if (route.name === 'leaderboard' || route.name === 'players'
+      || route.name === 'history') render();
   }
 
   function boardGroup(title, list, note) {
@@ -1780,16 +1831,21 @@
 
   // Draws the match-ticket card from the immutable result — no DOM assets,
   // webfonts or network calls; the PNG produced is what Share sends.
-  function drawVictoryCard() {
+  function drawVictoryCard(override) {
     const canvas = document.getElementById('victory-canvas');
     if (!canvas || !canvas.getContext) return;
-    const target = backend.getGame(ui.victoryGameId || currentRoute().id || '');
-    if (!target) return;
-    const result = Leaderboard.resultFor(target, {
-      mode: 'solo',
-      lowerWins: !(target.rules && target.rules.winner === 'lowest')
-    });
-    const data = Leaderboard.cardData(target, result);
+    let data = override || null;
+    let target = null;
+    let result = null;
+    if (!data) {
+      target = backend.getGame(ui.victoryGameId || currentRoute().id || '');
+      if (!target) return;
+      result = Leaderboard.resultFor(target, {
+        mode: 'solo',
+        lowerWins: !(target.rules && target.rules.winner === 'lowest')
+      });
+      data = Leaderboard.cardData(target, result);
+    }
     const ctx = canvas.getContext('2d');
     canvas.height = 1120;
     const W = canvas.width, H = canvas.height;
@@ -1840,11 +1896,11 @@
     // real score. In lowest-wins games the smallest score still gets the tallest
     // bar, so the winner always reads as the winner at a glance. The explanation
     // lives in the on-screen hint, not baked into the shared image.
-    const lower = Ranking.directionFor(target, result && result.lowerWins);
-    const ordered = data.standings.slice().sort(function (a, b) {
+    const lower = target ? Ranking.directionFor(target, result && result.lowerWins) : true;
+    const ordered = (override ? data.standings.slice() : data.standings.slice().sort(function (a, b) {
       if (a.isWinner !== b.isWinner) return a.isWinner ? -1 : 1;
       return lower ? a.total - b.total : b.total - a.total;
-    }).slice(0, 10);
+    })).slice(0, 10);
     const baseline = 900;
     const column = (W - 128) / ordered.length;
     const barWidth = Math.min(column - 14, 96);
@@ -1903,8 +1959,8 @@
     ctx.textAlign = 'center';
     ctx.fillStyle = '#6f769e';
     ctx.font = '600 26px system-ui, sans-serif';
-    ctx.fillText(data.players + ' players · ' + data.rounds + ' rounds',
-      W / 2, H - 100);
+    ctx.fillText((data.players || data.standings.length) + ' players'
+      + (data.rounds ? ' · ' + data.rounds + ' rounds' : ''), W / 2, H - 100);
     ctx.font = '600 22px system-ui, sans-serif';
     ctx.fillText('SCORELOCK · GAME NIGHT', W / 2, H - 56);
     ctx.textAlign = 'left';
@@ -1945,6 +2001,17 @@
     const buttons = document.querySelectorAll('[data-action="open-rivals"]');
     for (let i = 0; i < buttons.length; i += 1) {
       if (buttons[i].getAttribute('data-key') === key) { buttons[i].focus(); break; }
+    }
+  }
+
+  function closeHistoryResult() {
+    const id = ui.historyResultId;
+    ui.historyResultId = null;
+    ui.historyCardData = null;
+    render();
+    const cards = document.querySelectorAll('[data-action="open-history-result"]');
+    for (let i = 0; i < cards.length; i += 1) {
+      if (cards[i].getAttribute('data-id') === id) { cards[i].focus(); break; }
     }
   }
 
@@ -2132,6 +2199,16 @@
       focusById('rivals-close');
     }
     else if (action === 'close-rivals') { closeRivals(); }
+    else if (action === 'open-history-result') {
+      const id = trigger.getAttribute('data-id');
+      const stored = (boardData().results || []).filter(function (r) { return r && r.id === id; })[0];
+      if (!stored) return;
+      ui.historyResultId = id;
+      ui.historyCardData = Leaderboard.resultCardData(stored);
+      render();
+      focusById('victory-close');
+    }
+    else if (action === 'close-history-result') { closeHistoryResult(); }
     else if (action === 'open-victory') {
       ui.victoryGameId = trigger.getAttribute('data-id') || currentRoute().id;
       render();
@@ -2437,6 +2514,8 @@ else if (action === 'open-new-game') openNewGame();
     ui.rosterFilter = '';
     ui.rivalsKey = null;
     ui.firstPick = null;
+    ui.historyResultId = null;
+    ui.historyCardData = null;
     // A card opened by finishing stays open on the podium it navigated to;
     // any other navigation clears it so old games never auto-open.
     const next = currentRoute();
@@ -2455,6 +2534,7 @@ else if (action === 'open-new-game') openNewGame();
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') {
       if (ui.rivalsKey) { closeRivals(); return; }
+      if (ui.historyResultId) { closeHistoryResult(); return; }
       if (ui.victoryGameId) { closeVictory(); }
       return;
     }
