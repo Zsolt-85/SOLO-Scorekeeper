@@ -1849,9 +1849,15 @@
     const column = (W - 128) / ordered.length;
     const barWidth = Math.min(column - 14, 96);
     const emojiFont = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui';
+    ctx.textAlign = 'center';
+    let place = 0;
+    let previousTotal = null;
     ordered.forEach(function (row, i) {
+      // Tied players share a finishing place, so they share a bar height.
+      if (previousTotal === null || row.total !== previousTotal) place += 1;
+      previousTotal = row.total;
       const cx = 64 + column * (i + 0.5);
-      const height = Math.max(52, Math.round(200 * Math.pow(0.82, i)));
+      const height = Math.max(52, Math.round(200 * Math.pow(0.82, place - 1)));
       const top = baseline - height;
       const barX = cx - barWidth / 2;
       const color = /^#[0-9a-f]{6}$/i.test(row.color) ? row.color : '#5bc8af';
