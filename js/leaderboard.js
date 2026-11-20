@@ -418,6 +418,40 @@
     };
   }
 
+  // Same card shape as cardData, but for an immutable stored result (which has
+  // no seat objects or rounds). Used by the read-only History gallery.
+  function resultCardData(result) {
+    const r = result || {};
+    const players = (Array.isArray(r.players) ? r.players : []).filter(function (p) {
+      return p && p.key && p.name;
+    });
+    const lower = r.lowerWins !== false;
+    const total = function (p) { return Number.isFinite(p.total) ? p.total : 0; };
+    const ordered = players.slice().sort(function (a, b) {
+      return lower ? total(a) - total(b) : total(b) - total(a);
+    });
+    const winners = ordered.filter(function (p) { return !!p.win; });
+    const winnerTotal = winners.length ? total(winners[0]) : 0;
+    const gaps = ordered.filter(function (p) { return !p.win && p.total !== winnerTotal; })
+      .map(function (p) { return Math.abs(total(p) - winnerTotal); });
+    const at = typeof r.at === 'number' && isFinite(r.at) ? r.at : 0;
+    return {
+      gameName: gameNameOf(r),
+      dateLabel: at
+        ? new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+        : '',
+      winners: winners.map(function (p) { return String(p.name); }),
+      winnerTotal: winnerTotal,
+      margin: gaps.length ? Math.min.apply(null, gaps) : 0,
+      standings: ordered.map(function (p) {
+        return {
+          name: String(p.name), emoji: String(p.emoji || ''), color: colourFor(p.key),
+          total: total(p), isWinner: !!p.win
+        };
+      })
+    };
+  }
+
   const Leaderboard = {
     MIN_GAMES: MIN_GAMES,
     normalise: normalise,
@@ -433,7 +467,8 @@
     aggregate: aggregate,
     mergePlayers: mergePlayers,
     rivalries: rivalries,
-    cardData: cardData
+    cardData: cardData,
+    resultCardData: resultCardData
   };
 
   global.Leaderboard = Leaderboard;

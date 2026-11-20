@@ -420,6 +420,27 @@ test('cardData keeps player colours for the podium bars', () => {
     ['#f0b429', '#5bc8af']);
 });
 
+test('resultCardData derives winners, margin and colours from a stored result', () => {
+  const r = result('r1', 1000, [p('maya', 'Maya', true), p('sam', 'Sam', false)]);
+  r.players[0].total = 8;
+  r.players[1].total = 21;
+  const card = Leaderboard.resultCardData(r);
+  assert.deepEqual(card.winners, ['Maya']);
+  assert.equal(card.winnerTotal, 8);
+  assert.equal(card.margin, 13);
+  assert.equal(card.standings.length, 2);
+  assert.equal(card.standings[0].color, Leaderboard.colourFor('p_maya'));
+});
+
+test('resultCardData handles ties and malformed results', () => {
+  const tied = result('r2', 1000, [p('maya', 'Maya', true), p('sam', 'Sam', true)]);
+  const card = Leaderboard.resultCardData(tied);
+  assert.deepEqual(card.winners, ['Maya', 'Sam']);
+  assert.equal(card.margin, 0);
+  assert.deepEqual(Leaderboard.resultCardData({ id: 'r3', at: 1, players: [] }).standings, []);
+  assert.doesNotThrow(() => Leaderboard.resultCardData(null));
+});
+
 test('rivalries counts shared games, ties and ignores solo appearances', () => {
   const results = [
     result('r1', 10, [p('maya', 'Maya', true), p('sam', 'Sam', false)]),
