@@ -37,6 +37,11 @@
     victoryGameId: null, historyResultId: null, historyCardData: null
   };
 
+  const themeState = typeof Themes !== 'undefined'
+    ? Themes.loadTheme(window.localStorage)
+    : { skin: 'midnight', glow: true };
+  if (typeof Themes !== 'undefined') Themes.applyTheme(document, themeState);
+
   const views = {
     library: document.getElementById('view-library'),
     'new-game': document.getElementById('view-new-game'),
@@ -44,6 +49,7 @@
     play: document.getElementById('view-game'),
     podium: document.getElementById('view-podium'),
     rules: document.getElementById('view-rules'),
+    settings: document.getElementById('view-settings'),
     leaderboard: document.getElementById('view-leaderboard'),
     history: document.getElementById('view-history'),
     players: document.getElementById('view-players')
@@ -510,6 +516,7 @@
       ui.podiumPlayed = null;
     }
     if (route.name === 'rules') views.rules.innerHTML = renderRules();
+    if (route.name === 'settings') views.settings.innerHTML = renderSettings();
     if (route.name === 'box' && (route.tab || 'table') === 'hall') {
       const key = 'box/' + route.id;
       if (ui.boardKey !== key) { ui.boardKey = key; loadBoard(); }
@@ -597,12 +604,7 @@
       + '<h1 class="wordmark">Your games</h1>'
       + '<p class="tagline">' + (table
         ? escapeHtml(table.name || 'Live table') + ' · ' + codeChip(table.code)
-        : 'Pick one and start a round') + '</p></div>'
-      + '<nav class="topbar-links">'
-      + '<a class="btn ghost" href="#/library">Library</a>'
-      + '<a class="btn ghost" href="#/rules">How to play</a>'
-      + '<button type="button" class="btn ghost" data-action="open-join">Join</button>'
-      + refreshBtn() + '</nav></header>';
+        : 'Pick one and start a round') + '</p></div></header>';
   }
 
   function canLeaveTable(nextLabel) {
@@ -772,7 +774,6 @@
       + '<h1 class="wordmark">' + escapeHtml(type.name) + '</h1></div>'
       + '<nav class="topbar-links">'
       + (live ? '<span class="live-badge">Live</span>' : '')
-      + refreshBtn()
       + '<a class="btn ghost" href="#/box/' + escapeHtml(type.id) + '/rules" aria-label="House rules">House rules</a>'
       + '</nav></header>';
 
@@ -1358,12 +1359,6 @@
       + escapeHtml(chunkCode(code)) + '</button>';
   }
 
-  // Fetches the newest build and reloads without touching the scores.
-  function refreshBtn() {
-    return '<button type="button" class="btn ghost icon-btn" data-action="refresh-app"'
-      + ' aria-label="Refresh app" title="Refresh app">' + icon('refresh', 16) + '</button>';
-  }
-
   function playTogetherHtml() {
     if (space) {
       const status = space.status();
@@ -1529,10 +1524,32 @@
   }
 
 
+  function renderSettings() {
+    const skins = typeof Themes !== 'undefined' ? Themes.SKINS : [];
+    let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">Settings</h1>'
+      + '<p class="tagline">Make the table yours</p></div></header>';
+    html += '<section class="panel settings-panel"><h2>Table skins</h2>'
+      + '<p class="muted">The surface beneath every screen. Saved on this device.</p>'
+      + '<div class="skin-grid">' + skins.map(function (skin) {
+        const selected = themeState.skin === skin.id;
+        return '<button type="button" class="skin-card' + (selected ? ' selected' : '') + '"'
+          + ' data-action="set-skin" data-skin="' + escapeHtml(skin.id) + '">'
+          + '<span class="skin-preview skin-' + escapeHtml(skin.id) + '">'
+          + '<span class="skin-mini">' + escapeHtml(skin.name) + '</span></span>'
+          + '<span class="skin-name">' + escapeHtml(skin.name) + (selected ? ' ✓' : '') + '</span>'
+          + '<span class="skin-desc">' + escapeHtml(skin.desc) + '</span></button>';
+      }).join('') + '</div>'
+      + '<div class="settings-row"><span>Surface glow</span>'
+      + '<button type="button" class="btn ghost" data-action="toggle-glow">'
+      + (themeState.glow ? 'On' : 'Off') + '</button></div>'
+      + '</section>';
+    return html;
+  }
+
   function renderRules() {
     let html = '<header class="topbar"><div><h1 class="wordmark">Rules</h1>'
       + '<p class="tagline">How the scores work</p></div>'
-      + '<nav class="topbar-links">' + refreshBtn()
+      + '<nav class="topbar-links">'
       + '<a class="btn ghost" href="#/home">Back</a></nav></header>';
 
     html += '<section class="panel rules"><h2>How this app scores</h2>'
@@ -1618,7 +1635,7 @@
     let html = '<header class="topbar"><div><p class="label">Round ' + (game.rounds.length + 1)
       + '</p><h1 class="wordmark">' + escapeHtml(game.typeName || type.name) + '</h1>'
       + '<p class="tagline">' + escapeHtml(ruleLabel(rules)) + '</p></div>'
-      + '<nav class="topbar-links">' + refreshBtn()
+      + '<nav class="topbar-links">'
       + '<a class="btn ghost" href="#/box/' + escapeHtml(game.typeId || type.id) + '">Back</a></nav></header>';
 
     if (inLobby()) {
@@ -1689,7 +1706,7 @@
     let html = '<header class="topbar"><div><h1 class="wordmark">Final scores</h1>'
       + '<p class="tagline">' + escapeHtml(name) + ' · ' + escapeHtml(formatDate(target.startedAt))
       + '</p></div>'
-      + '<nav class="topbar-links">' + refreshBtn()
+      + '<nav class="topbar-links">'
       + '<a class="btn ghost" href="#/box/' + escapeHtml(typeId) + '">Done</a></nav></header>';
 
     html += '<div class="podium-rules">' + ruleChips({ rules: rules }) + '</div>';
@@ -2109,6 +2126,17 @@
       render();
     }
     else if (action === 'open-add-mid') { ui.addPanelOpen = true; ui.addTarget = 'game'; ui.addEditId = null; ui.addName = ''; ui.addEmoji = EMOJI[0]; render(); focusName(); }
+    else if (action === 'set-skin' || action === 'toggle-glow') {
+      if (action === 'set-skin') themeState.skin = trigger.getAttribute('data-skin');
+      else themeState.glow = !themeState.glow;
+      if (typeof Themes !== 'undefined') {
+        const saved = Themes.saveTheme(window.localStorage, themeState);
+        themeState.skin = saved.skin;
+        themeState.glow = saved.glow;
+        Themes.applyTheme(document, themeState);
+      }
+      render();
+    }
     else if (action === 'who-goes-first') {
       const game = gameFor(currentGameId());
       if (game) {

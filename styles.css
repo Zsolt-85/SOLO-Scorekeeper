@@ -1032,3 +1032,80 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
 @media (min-width: 1040px) {
   #view-library .shelf { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* TABLE SKINS — the surface beneath the game.
+   Glow and texture are separate layers so "Surface glow" can turn off only the
+   glow while felt/paper/neon textures remain. */
+html[data-skin="midnight"] {
+  --glow: radial-gradient(circle at 15% 0%, rgba(240,180,41,.09), transparent 55%);
+  --texture: none;
+}
+html[data-skin="felt"] {
+  --bg: #0b201a; --panel: #14362a; --panel-2: #1c4536; --line: #2d604a;
+  --text: #f5f1e4; --muted: #a8c6b5; --gold: #d9b24a; --lose: #f09a82;
+  --glow: radial-gradient(circle at 20% 0%, rgba(217,178,74,.13), transparent 55%);
+  --texture: repeating-linear-gradient(45deg, rgba(255,255,255,.014) 0 3px, transparent 3px 7px);
+}
+html[data-skin="paper"] {
+  --bg: #eee4cd; --panel: #fbf5e7; --panel-2: #f0e6cf; --line: #d6c49c;
+  --text: #2e2619; --muted: #7a6b52; --gold: #98733d; --lose: #b4523f;
+  --glow: radial-gradient(circle at 80% 10%, rgba(152,115,61,.12), transparent 60%);
+  --texture: repeating-linear-gradient(0deg, rgba(90,70,40,.045) 0 22px, transparent 22px 23px);
+}
+html[data-skin="neon"] {
+  --bg: #080b1c; --panel: #121735; --panel-2: #1b2150; --line: #303b7d;
+  --text: #eaf7ff; --muted: #9fb2e0; --gold: #4de3ff; --lose: #ff5ec7;
+  --glow: radial-gradient(circle at 75% 10%, rgba(77,227,255,.15), transparent 50%),
+    radial-gradient(circle at 10% 80%, rgba(255,94,199,.11), transparent 50%);
+  --texture: repeating-linear-gradient(90deg, rgba(120,160,255,.05) 0 1px, transparent 1px 34px);
+}
+body { background-image: var(--glow, none), var(--texture, none); }
+html.no-glow body { background-image: var(--texture, none) !important; }
+html[data-skin] .panel,
+html[data-skin] .continue-strip,
+html[data-skin] .history-card,
+html[data-skin] .rivals-sheet,
+html[data-skin] .victory-sheet,
+html[data-skin] .board-row,
+html[data-skin] .pr-row,
+html[data-skin] .tile { background-color: var(--panel); }
+html[data-skin] .btn.ghost { color: var(--text); }
+html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gold); color: var(--gold); }
+
+.sidebar button.sidebar-link {
+  background: none; border: 0; font: inherit; text-align: left;
+  cursor: pointer; width: 100%;
+}
+.settings-panel h2 { font-size: 1.1rem; margin-bottom: 0.3rem; }
+.skin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin-top: 0.9rem; }
+.skin-card {
+  display: grid; gap: 0.2rem; text-align: left; font: inherit; color: var(--text);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 13px; padding: 0.45rem; cursor: pointer;
+}
+.skin-card.selected { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.skin-preview {
+  height: 86px; border-radius: 9px; padding: 0.5rem;
+  display: flex; align-items: flex-end; overflow: hidden; position: relative;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.skin-mini {
+  background: rgba(0,0,0,0.35); color: #fff; font-size: 0.6rem;
+  padding: 0.25rem 0.4rem; border-radius: 6px;
+}
+.skin-midnight { background: radial-gradient(circle at 30% 20%, #2b3159, #0d1020 70%); }
+.skin-felt { background: radial-gradient(circle at 30% 20%, #22513f, #0c241c 70%); }
+.skin-paper { background: repeating-linear-gradient(0deg, #eee4cd 0 16px, #e5d9bd 16px 17px); }
+.skin-neon {
+  background: radial-gradient(circle at 70% 20%, #2a2a6e, #0a0b1c 70%),
+    repeating-linear-gradient(90deg, transparent 0 22px, rgba(110,193,255,.14) 22px 23px);
+}
+.skin-name { font-size: 0.8rem; font-weight: 700; }
+.skin-desc { color: var(--muted); font-size: 0.68rem; }
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 1rem; font-size: 0.85rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skin-card, .skin-card.selected { transition: none; }
+}
