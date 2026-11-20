@@ -406,3 +406,39 @@ test('mergePlayers sorts pooled entries and handles empties', () => {
   assert.deepEqual(out.map(function (r) { return r.name; }), ['Al', 'Bo']);
   assert.deepEqual(Leaderboard.mergePlayers(null, null, null, null), []);
 });
+
+test('rivalries counts shared games, ties and ignores solo appearances', () => {
+  const results = [
+    result('r1', 10, [p('maya', 'Maya', true), p('sam', 'Sam', false)]),
+    result('r2', 20, [p('maya', 'Maya', false), p('sam', 'Sam', true)]),
+    result('r3', 30, [p('maya', 'Maya', true), p('sam', 'Sam', true)]), // tie: both win
+    result('r4', 40, [p('zsolt', 'Zsolt', true)]), // solo, not a rivalry
+    result('r5', 50, [p('maya', 'Maya', true), p('zsolt', 'Zsolt', false)])
+  ];
+  const maya = Leaderboard.rivalries(results, 'p_maya');
+  assert.deepEqual(maya[0], { key: 'p_sam', name: 'Sam', games: 3, wins: 2, theirWins: 2 });
+  assert.deepEqual(maya[1], { key: 'p_zsolt', name: 'Zsolt', games: 1, wins: 1, theirWins: 0 });
+  assert.deepEqual(Leaderboard.rivalries(results, 'p_nobody'), []);
+});
+
+test('cardData handles a clear win, a lowest-wins margin, a tie and most-wins', () => {
+  const low = game({ rounds: [{ id: 'r1', at: 15, points: { s1: 8, s2: 21 } }] });
+  const lowResult = Leaderboard.resultFor(low, { mode: 'solo' });
+  const card = Leaderboard.cardData(low, lowResult);
+  assert.deepEqual(card.winners, ['Maya']);
+  assert.equal(card.winnerTotal, 8);
+  assert.equal(card.margin, 13);
+  assert.equal(card.standings.length, 2);
+  assert.equal(typeof card.dateLabel, 'string');
+
+  const tied = game({ rounds: [{ id: 'r1', at: 15, points: { s1: 7, s2: 7 } }] });
+  const tiedCard = Leaderboard.cardData(tied, Leaderboard.resultFor(tied, { mode: 'solo' }));
+  assert.deepEqual(tiedCard.winners, ['Maya', 'Sam']);
+  assert.equal(tiedCard.margin, 0);
+
+  const high = game({ lowerWins: false, rounds: [{ id: 'r1', at: 15, points: { s1: 8, s2: 21 } }] });
+  const highCard = Leaderboard.cardData(high, Leaderboard.resultFor(high, { mode: 'solo', lowerWins: false }));
+  assert.deepEqual(highCard.winners, ['Sam']);
+  assert.equal(highCard.winnerTotal, 21);
+  assert.equal(highCard.margin, 13);
+});

@@ -358,6 +358,63 @@
     return locals.concat(extras);
   }
 
+  // Head-to-head records from immutable results. A tie credits a win to both
+  // players (same rule as resultFor); only games where both appeared count.
+  function rivalries(results, key) {
+    const rows = {};
+    const seen = {};
+    (Array.isArray(results) ? results : []).forEach(function (result) {
+      if (!result || !result.id || seen[result.id]) return;
+      seen[result.id] = true;
+      const players = Array.isArray(result.players) ? result.players : [];
+      const mine = players.filter(function (entry) { return entry && entry.key === key; });
+      if (!mine.length) return;
+      const myWin = mine.some(function (entry) { return !!entry.win; });
+      players.forEach(function (entry) {
+        if (!entry || !entry.key || !entry.name || entry.key === key) return;
+        const row = rows[entry.key] || (rows[entry.key] = {
+          key: entry.key, name: String(entry.name), games: 0, wins: 0, theirWins: 0
+        });
+        row.games += 1;
+        if (myWin) row.wins += 1;
+        if (entry.win) row.theirWins += 1;
+      });
+    });
+    return Object.keys(rows).map(function (key) { return rows[key]; }).sort(function (a, b) {
+      return (b.games - a.games) || (b.wins - a.wins)
+        || String(a.name).localeCompare(String(b.name));
+    });
+  }
+
+  // Everything the shareable Victory Card needs, derived from the finished game.
+  function cardData(game, result) {
+    const match = game || {};
+    const direction = Ranking.directionFor(match, result && result.lowerWins);
+    const ranked = Ranking.rank(match, direction);
+    const winners = ranked.filter(function (entry) { return entry.isWinner; });
+    const winnerTotal = winners.length ? winners[0].total : 0;
+    const gaps = ranked.filter(function (entry) {
+      return !entry.isWinner && entry.total !== winnerTotal;
+    }).map(function (entry) { return Math.abs(entry.total - winnerTotal); });
+    const margin = gaps.length ? Math.min.apply(null, gaps) : 0;
+    const at = finishTime(match) || (result && result.at) || 0;
+    return {
+      gameName: match.typeName || gameNameOf(result) || 'SOLO',
+      dateLabel: at
+        ? new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+        : '',
+      winners: winners.map(function (entry) { return String(entry.seat.name || ''); }),
+      winnerTotal: winnerTotal,
+      margin: margin,
+      standings: ranked.map(function (entry) {
+        return {
+          name: String(entry.seat.name || ''), emoji: String(entry.seat.emoji || ''),
+          total: entry.total, isWinner: !!entry.isWinner
+        };
+      })
+    };
+  }
+
   const Leaderboard = {
     MIN_GAMES: MIN_GAMES,
     normalise: normalise,
@@ -371,7 +428,9 @@
     rankRows: rankRows,
     allPlayers: allPlayers,
     aggregate: aggregate,
-    mergePlayers: mergePlayers
+    mergePlayers: mergePlayers,
+    rivalries: rivalries,
+    cardData: cardData
   };
 
   global.Leaderboard = Leaderboard;
