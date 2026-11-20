@@ -2571,7 +2571,7 @@ else if (action === 'open-new-game') openNewGame();
       return;
     }
     if (event.key !== 'Tab') return;
-    const dialog = document.querySelector('.rivals-overlay, .victory-overlay');
+    const dialog = document.querySelector('.splash, .rivals-overlay, .victory-overlay');
     if (!dialog) return;
     const controls = Array.prototype.slice.call(
       dialog.querySelectorAll('button:not([disabled]), a[href], input:not([disabled])')
@@ -2639,6 +2639,10 @@ else if (action === 'open-new-game') openNewGame();
     if (!splash) return;
     const reduce = Boolean(window.matchMedia
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    // The splash is modal: keep the app and menu out of the tab order behind it.
+    const background = [document.querySelector('.sidebar'), document.getElementById('app')]
+      .filter(function (el) { return !!el; });
+    background.forEach(function (el) { el.inert = true; });
     const list = document.getElementById('splash-games');
     const visible = shelfOrder((backend.getLibrary() || []).filter(function (type) {
       return !type.archived;
@@ -2661,12 +2665,16 @@ else if (action === 'open-new-game') openNewGame();
         new Promise(function (resolve) { setTimeout(resolve, 900); })
       ]);
     function dismiss() {
-      splash.dataset.done = '1';
       splash.classList.add('splash-out');
       setTimeout(function () {
         if (splash.parentNode) splash.remove();
-        const menu = document.querySelector('.hamburger');
-        if (menu && typeof menu.focus === 'function') menu.focus();
+        background.forEach(function (el) { el.inert = false; });
+        let target = document.querySelector('.hamburger');
+        if (!target || !target.offsetParent) {
+          target = document.getElementById('app');
+          if (target) target.setAttribute('tabindex', '-1');
+        }
+        if (target && typeof target.focus === 'function') target.focus();
       }, reduce ? 0 : 460);
     }
     const start = document.getElementById('splash-start');
@@ -2674,6 +2682,7 @@ else if (action === 'open-new-game') openNewGame();
       start.addEventListener('click', function () {
         if (start.disabled) return;
         start.disabled = true;
+        splash.dataset.done = '1'; // safety timer must not remove it mid-fade
         start.textContent = 'Setting the table…';
         revalidate.then(dismiss);
       });

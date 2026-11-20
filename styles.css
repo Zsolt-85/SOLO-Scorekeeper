@@ -1241,6 +1241,7 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
 
 @media (prefers-reduced-motion: reduce) {
   .splash-spinner { animation: none; }
+  .splash-mark, .splash-title, .splash-tagline, .splash-games li, .splash-start { animation: none; }
   ::view-transition-old(app-view), ::view-transition-new(app-view) { animation: none; }
 }
 .btn.primary:active:not(:disabled), .btn:active:not(:disabled) { transform: scale(.98); }
