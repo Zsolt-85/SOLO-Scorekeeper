@@ -806,6 +806,66 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
   .box-topbar > div > .btn { flex: 0 0 auto; }
 }
 
+/* MOBILE DELIGHT — score feedback, rivals sheet, victory card */
+.tile-delta {
+  margin: 6px 0 0; color: var(--muted); font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+.tile-delta.up { color: #5bc8af; font-weight: 700; }
+.tile-delta span { color: var(--muted); font-size: 0.68rem; font-weight: 400; }
+.first-pick { color: var(--gold); font-size: 0.85rem; font-weight: 700; }
+.first-btn { min-height: 44px; }
+
+@media (max-width: 620px) {
+  .pr-row {
+    grid-template-columns: 48px repeat(3, minmax(0, 1fr)) auto;
+    grid-template-areas:
+      "disc who   who   who    pct"
+      "disc rivals edit remove remove";
+  }
+  .pr-row > [data-action="open-rivals"] { grid-area: rivals; }
+}
+
+.rivals-overlay, .victory-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: calc(16px + env(safe-area-inset-top)) 16px
+           calc(16px + env(safe-area-inset-bottom));
+  background: rgba(5, 7, 16, 0.78);
+}
+.rivals-sheet, .victory-sheet {
+  width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 18px; padding: 1rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+@media (max-width: 620px) {
+  .rivals-overlay { align-items: flex-end; padding: 0; }
+  .rivals-sheet {
+    border-radius: 18px 18px 0 0; max-height: 80vh;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+}
+.rivals-list { list-style: none; margin: 0.8rem 0 0; padding: 0; display: grid; gap: 0.4rem; }
+.rivals-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.6rem; align-items: center; min-height: 48px;
+  padding: 0.4rem 0.6rem; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 10px;
+}
+.rivals-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rivals-record { color: var(--gold); font-weight: 700; font-variant-numeric: tabular-nums; }
+.rivals-games { color: var(--muted); font-size: 0.72rem; }
+.victory-sheet { text-align: center; max-width: 460px; }
+#victory-canvas {
+  display: block; width: 100%; height: auto; max-height: 70vh;
+  object-fit: contain; border-radius: 12px;
+}
+.victory-sheet .row { display: grid; grid-template-columns: 1fr 1fr; }
+.rivals-overlay :focus-visible, .victory-overlay :focus-visible {
+  outline: 2px solid var(--gold); outline-offset: 2px;
+}
+
 /* MOBILE SYSTEM — Players roster card: identity / stats / actions (phones only) */
 @media (max-width: 620px) {
   .pr-row {

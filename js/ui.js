@@ -33,7 +33,8 @@
     boardError: '', boardNotice: '', boardLoadError: '',
     showArchived: false, newGame: null, newGameError: '', newGameBusy: false,
     houseError: '', houseNotice: '', joinCode: '', joining: false, leaving: false,
-    rosterFilter: ''
+    rosterFilter: '', firstPick: null, rivalsKey: null, rivalsTrigger: null,
+    victoryGameId: null
   };
 
   const views = {
@@ -506,6 +507,7 @@
       const settled = ui.podiumPlayed === key;
       views.podium.innerHTML = renderPodium(route.id, settled);
       if (!settled) { ui.podiumPlayed = key; Reveal.playPodium(views.podium); }
+      drawVictoryCard();
     } else {
       ui.podiumPlayed = null;
     }
@@ -1109,6 +1111,9 @@
       + '<span class="pr-who"><span class="nm">' + escapeHtml(row.name) + '</span>'
       + '<span class="board-record">' + record + '</span></span>'
       + '<span class="pr-den">' + pct + fav + '</span>'
+      + '<button type="button" class="btn ghost rm rivals-btn" data-action="open-rivals"'
+      + ' data-key="' + escapeHtml(row.key) + '" data-name="' + escapeHtml(row.name) + '"'
+      + ' aria-label="See ' + escapeHtml(row.name) + '\'s rivals">Rivals &rsaquo;</button>'
       + '<button type="button" class="btn ghost rm" data-action="edit-person"'
       + ' data-key="' + escapeHtml(row.key) + '" data-name="' + escapeHtml(row.name) + '"'
       + ' aria-label="Edit ' + escapeHtml(row.name) + '">Edit</button>'
@@ -1137,6 +1142,35 @@
     return Leaderboard.allPlayers(pool, results);
   }
 
+  function rivalsSheetHtml() {
+    const key = ui.rivalsKey;
+    const data = boardData();
+    const profile = (data.pool || []).filter(function (p) { return p && p.id === key; })[0];
+    let title = profile ? profile.name : 'Your';
+    if (!profile) {
+      (data.results || []).some(function (result) {
+        const mine = (result.players || []).filter(function (p) { return p && p.key === key; })[0];
+        if (mine) { title = mine.name; return true; }
+        return false;
+      });
+    }
+    const rows = Leaderboard.rivalries(data.results, key);
+    let html = '<div class="rivals-overlay" role="dialog" aria-modal="true" aria-label="Head-to-head records">'
+      + '<div class="rivals-sheet"><div class="board-head"><h2>' + escapeHtml(title)
+      + ' · rivals</h2><button type="button" class="btn ghost icon-btn" id="rivals-close"'
+      + ' data-action="close-rivals" aria-label="Close rivals">&times;</button></div>';
+    if (!rows.length) {
+      html += '<p class="muted">Play a game with someone to see your records.</p>';
+    } else {
+      html += '<ul class="rivals-list">' + rows.map(function (row) {
+        return '<li class="rivals-row"><span class="rivals-name">' + escapeHtml(row.name) + '</span>'
+          + '<span class="rivals-record">' + row.wins + ' &ndash; ' + row.theirWins + '</span>'
+          + '<span class="rivals-games">' + row.games + ' game' + (row.games === 1 ? '' : 's') + '</span></li>';
+      }).join('') + '</ul>';
+    }
+    return html + '<p class="hint">Both players get a win when they tie.</p></div></div>';
+  }
+
   function renderPlayers() {
     const data = boardData();
     const rows = playersRows();
@@ -1151,6 +1185,7 @@
       html += '<div class="empty-state"><p>No players yet.</p>'
         + '<p class="hint">Add one here, or play a table &mdash; everyone who joins shows up here.</p></div>';
       if (ui.addPanelOpen) html += addPanelHtml();
+      if (ui.rivalsKey) html += rivalsSheetHtml();
       if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
       return html;
     }
@@ -1162,6 +1197,7 @@
       + '<p class="board-privacy">A name is the player. Every table adds to the same roster.</p>'
       + '<p class="muted">Removing a player takes them off your tables here. Their past results stay on the leaderboard.</p>';
     if (ui.addPanelOpen) html += addPanelHtml();
+    if (ui.rivalsKey) html += rivalsSheetHtml();
     if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
     return html;
   }
@@ -1589,7 +1625,9 @@
   function renderGame(gameId) {
     const game = gameFor(gameId);
     if (!game) { navigate('library'); return ''; }
-    if (ui.roundGameId !== gameId) { ui.roundGameId = gameId; ui.roundDraft = {}; }
+    if (ui.roundGameId !== gameId) {
+      ui.roundGameId = gameId; ui.roundDraft = {}; ui.firstPick = null;
+    }
     const type = typeForGame(game) || {
       id: game.typeId, name: game.typeName, emoji: '🎲', colour: '#f0b429',
       pattern: 'pips', rules: game.rules
@@ -1620,6 +1658,11 @@
 
     html += '<div class="score-rules">' + ruleChips({ rules: rules })
       + (limit !== null ? '<span class="score-limit">To ' + limit + ' · top ' + (top === null ? 0 : top) + '</span>' : '')
+      + '<button type="button" class="btn ghost first-btn" data-action="who-goes-first">Who goes first</button>'
+      + (ui.firstPick
+        ? '<span class="first-pick" role="status">' + escapeHtml(ui.firstPick.emoji || '')
+          + ' ' + escapeHtml(ui.firstPick.name) + ' starts</span>'
+        : '')
       + '</div>';
     if (reached) {
       html += '<p class="limit-banner" role="status">Score limit reached — end the game.</p>';
@@ -1629,11 +1672,15 @@
 
     html += '<div class="tiles">' + game.seats.map(function (seat, i) {
       const classes = played && totals[i] === leader ? 'tile leading' : 'tile';
+      const delta = Ranking.lastRoundDelta(game, seat.id);
+      const deltaText = delta === null ? '&mdash;'
+        : (delta > 0 ? '+' : '') + delta + '<span> last round</span>';
       return '<article class="' + classes + '" style="--tile-color:' + escapeHtml(seat.color) + '">'
         + '<div class="tile-head"><span class="disc" aria-hidden="true">' + escapeHtml(seat.emoji)
         + '</span><span class="tile-name">' + escapeHtml(seat.name) + '</span></div>'
         + '<div class="tile-total">' + totals[i] + '</div>'
         + '<p class="tile-caption">total</p>'
+        + '<p class="tile-delta' + (delta !== null && delta > 0 ? ' up' : '') + '">' + deltaText + '</p>'
         + '<input class="input tile-input" inputmode="numeric" pattern="[0-9-]*"'
         + ' data-seat="' + escapeHtml(seat.id) + '" aria-label="Points for ' + escapeHtml(seat.name)
         + ' this round" autocomplete="off" value="' + escapeHtml(ui.roundDraft[seat.id] || '') + '"'
@@ -1704,8 +1751,157 @@
       html += '<button class="btn primary big" data-action="play-again">Play again</button>';
     }
     html += '<div class="row"><button class="btn ghost" data-action="new-players">Game page</button>'
+      + '<button class="btn ghost" data-action="open-victory" data-id="' + escapeHtml(target.id)
+      + '">Victory card</button>'
       + '<a class="btn ghost" href="#/box/' + escapeHtml(typeId) + '/log">Log</a></div></div>';
+
+    if (ui.victoryGameId && ui.victoryGameId === target.id) {
+      html += '<div class="victory-overlay" role="dialog" aria-modal="true" aria-label="Victory card">'
+        + '<div class="victory-sheet">'
+        + '<canvas id="victory-canvas" width="900" height="1200" role="img"'
+        + ' aria-label="Shareable scorecard for ' + escapeHtml(name) + '"></canvas>'
+        + '<div class="row"><button type="button" class="btn primary"'
+        + ' data-action="share-victory">Share card</button>'
+        + '<button type="button" class="btn ghost" id="victory-close"'
+        + ' data-action="close-victory">Close (Esc)</button></div>'
+        + '<p class="hint">Nothing is shared unless you choose Share.</p>'
+        + '</div></div>';
+    }
     return html;
+  }
+
+  function fitCanvasText(ctx, text, maxWidth, size) {
+    while (size > 22 && ctx.measureText(text).width > maxWidth) {
+      size -= 2;
+      ctx.font = '800 ' + size + 'px system-ui, sans-serif';
+    }
+  }
+
+  // Draws the match-ticket card from the immutable result — no DOM assets,
+  // webfonts or network calls; the PNG produced is what Share sends.
+  function drawVictoryCard() {
+    const canvas = document.getElementById('victory-canvas');
+    if (!canvas || !canvas.getContext) return;
+    const target = backend.getGame(ui.victoryGameId || currentRoute().id || '');
+    if (!target) return;
+    const result = Leaderboard.resultFor(target, {
+      mode: 'solo',
+      lowerWins: !(target.rules && target.rules.winner === 'lowest')
+    });
+    const data = Leaderboard.cardData(target, result);
+    const ctx = canvas.getContext('2d');
+    // Keep the image tall enough for every roster, but no taller.
+    canvas.height = Math.max(1080, 900 + data.standings.length * 76);
+    const W = canvas.width, H = canvas.height;
+    ctx.fillStyle = '#111428';
+    ctx.fillRect(0, 0, W, H);
+    const gold = ctx.createLinearGradient(0, 0, W, 0);
+    gold.addColorStop(0, '#f6c455');
+    gold.addColorStop(0.5, '#f0b429');
+    gold.addColorStop(1, '#dd9d12');
+    ctx.fillStyle = gold;
+    ctx.fillRect(0, 0, W, 12);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#9aa0c8';
+    ctx.font = '600 24px system-ui, sans-serif';
+    ctx.fillText('SCORELOCK · MATCH CARD', 64, 82);
+    ctx.textAlign = 'right';
+    ctx.fillText(String(data.dateLabel).toUpperCase(), W - 64, 82);
+    ctx.textAlign = 'left';
+    ctx.font = '400 30px system-ui, sans-serif';
+    ctx.fillText(data.gameName + ' · winner', 64, 170);
+    ctx.fillStyle = '#f2f3ff';
+    ctx.font = '800 84px system-ui, sans-serif';
+    const headline = data.winners.length > 1
+      ? data.winners.join(' & ') + ' share the win'
+      : data.winners[0] + ' wins';
+    fitCanvasText(ctx, headline, W - 128, 84);
+    ctx.fillText(headline, 64, 280);
+    ctx.fillStyle = '#f0b429';
+    ctx.font = '800 220px system-ui, sans-serif';
+    ctx.fillText(String(data.winnerTotal), 60, 540);
+    ctx.fillStyle = '#9aa0c8';
+    ctx.font = '500 30px system-ui, sans-serif';
+    ctx.fillText('POINTS', 64, 596);
+    if (data.winners.length === 1 && data.margin) {
+      ctx.fillStyle = '#5bc8af';
+      ctx.font = '700 36px system-ui, sans-serif';
+      ctx.fillText('won by ' + data.margin, 280, 596);
+    }
+    ctx.strokeStyle = '#2b3054';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([12, 12]);
+    ctx.beginPath();
+    ctx.moveTo(64, 660);
+    ctx.lineTo(W - 64, 660);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    data.standings.slice(0, 10).forEach(function (row, i) {
+      const y = 760 + i * 72;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = row.isWinner ? '#f0b429' : '#9aa0c8';
+      ctx.font = '700 30px system-ui, sans-serif';
+      ctx.fillText(String(i + 1), 64, y);
+      ctx.fillStyle = row.isWinner ? '#f2f3ff' : '#9aa0c8';
+      ctx.font = '500 36px system-ui, sans-serif';
+      // Emoji glyphs differ (or go missing) in canvas across devices; names
+      // keep the shared image consistent everywhere.
+      fitCanvasText(ctx, row.name, W - 320, 36);
+      ctx.fillText(row.name, 132, y);
+      ctx.textAlign = 'right';
+      ctx.font = '700 36px system-ui, sans-serif';
+      ctx.fillText(String(row.total), W - 64, y);
+    });
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#6f769e';
+    ctx.font = '600 26px system-ui, sans-serif';
+    ctx.fillText(data.players + ' players · ' + data.rounds + ' rounds',
+      W / 2, H - 100);
+    ctx.font = '600 22px system-ui, sans-serif';
+    ctx.fillText('SCORELOCK · GAME NIGHT', W / 2, H - 56);
+    ctx.textAlign = 'left';
+  }
+
+  function shareVictoryCard() {
+    const canvas = document.getElementById('victory-canvas');
+    const button = document.querySelector('[data-action="share-victory"]');
+    if (!canvas || !canvas.toBlob) return;
+    canvas.toBlob(function (blob) {
+      if (!blob) return;
+      try {
+        const file = new File([blob], 'scorelock-victory.png', { type: 'image/png' });
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file], title: 'SCORELOCK victory' }).catch(function () {});
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'scorelock-victory.png';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+        if (button) button.textContent = 'Saved — send it from your photos';
+      } catch (error) {
+        if (button) button.textContent = 'Sharing unavailable — take a screenshot';
+      }
+    }, 'image/png');
+  }
+
+  function closeRivals() {
+    const trigger = ui.rivalsTrigger;
+    ui.rivalsKey = null;
+    ui.rivalsTrigger = null;
+    render();
+    if (trigger && trigger.isConnected) trigger.focus();
+  }
+
+  function closeVictory() {
+    ui.victoryGameId = null;
+    render();
+    const button = document.querySelector('[data-action="open-victory"]');
+    if (button && button.isConnected) button.focus();
   }
 
   function saveRound() {
@@ -1871,9 +2067,32 @@
       render();
     }
     else if (action === 'open-add-mid') { ui.addPanelOpen = true; ui.addTarget = 'game'; ui.addEditId = null; ui.addName = ''; ui.addEmoji = EMOJI[0]; render(); focusName(); }
+    else if (action === 'who-goes-first') {
+      const game = gameFor(currentGameId());
+      if (game) {
+        const pick = Ranking.pickFirst(game.seats, Math.random);
+        if (pick) ui.firstPick = { name: pick.name, emoji: pick.emoji };
+        render();
+      }
+    }
+    else if (action === 'open-rivals') {
+      ui.rivalsKey = trigger.getAttribute('data-key');
+      ui.rivalsTrigger = trigger;
+      render();
+      focusById('rivals-close');
+    }
+    else if (action === 'close-rivals') { closeRivals(); }
+    else if (action === 'open-victory') {
+      ui.victoryGameId = trigger.getAttribute('data-id') || currentRoute().id;
+      render();
+      focusById('victory-close');
+    }
+    else if (action === 'close-victory') { closeVictory(); }
+    else if (action === 'share-victory') { shareVictoryCard(); }
     else if (action === 'end-game') {
       try {
         const game = backend.finishGame(currentGameId());
+        ui.victoryGameId = game.id;
         if (space) {
           publishFinished('lobby', space.getState().players, space.finishedGames());
         } else {
@@ -2166,6 +2385,9 @@ else if (action === 'open-new-game') openNewGame();
     ui.boardName = '';
     ui.boardEmoji = EMOJI[0];
     ui.rosterFilter = '';
+    ui.rivalsKey = null;
+    ui.rivalsTrigger = null;
+    ui.firstPick = null;
     render();
   });
 
@@ -2173,6 +2395,12 @@ else if (action === 'open-new-game') openNewGame();
     const field = document.getElementById(id);
     if (field) field.focus();
   }
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    if (ui.rivalsKey) { closeRivals(); return; }
+    if (ui.victoryGameId) { closeVictory(); }
+  });
 
   function focusName() {
     const field = document.getElementById('new-player-name');
