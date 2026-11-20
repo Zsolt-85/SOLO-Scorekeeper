@@ -1764,16 +1764,17 @@
         + ' data-action="share-victory">Share card</button>'
         + '<button type="button" class="btn ghost" id="victory-close"'
         + ' data-action="close-victory">Close (Esc)</button></div>'
-        + '<p class="hint">Nothing is shared unless you choose Share.</p>'
+        + '<p class="hint">Tallest bar = winner · scores on top. Nothing is shared unless you choose Share.</p>'
         + '</div></div>';
     }
     return html;
   }
 
-  function fitCanvasText(ctx, text, maxWidth, size) {
-    while (size > 22 && ctx.measureText(text).width > maxWidth) {
+  function fitCanvasText(ctx, text, maxWidth, size, weight) {
+    const fontWeight = weight || '800';
+    while (size > 18 && ctx.measureText(text).width > maxWidth) {
       size -= 2;
-      ctx.font = '800 ' + size + 'px system-ui, sans-serif';
+      ctx.font = fontWeight + ' ' + size + 'px system-ui, sans-serif';
     }
   }
 
@@ -1790,8 +1791,7 @@
     });
     const data = Leaderboard.cardData(target, result);
     const ctx = canvas.getContext('2d');
-    // Keep the image tall enough for every roster, but no taller.
-    canvas.height = Math.max(1080, 900 + data.standings.length * 76);
+    canvas.height = 1120;
     const W = canvas.width, H = canvas.height;
     ctx.fillStyle = '#111428';
     ctx.fillRect(0, 0, W, H);
@@ -1832,25 +1832,67 @@
     ctx.lineWidth = 2;
     ctx.setLineDash([12, 12]);
     ctx.beginPath();
-    ctx.moveTo(64, 660);
-    ctx.lineTo(W - 64, 660);
+    ctx.moveTo(64, 620);
+    ctx.lineTo(W - 64, 620);
     ctx.stroke();
     ctx.setLineDash([]);
-    data.standings.slice(0, 10).forEach(function (row, i) {
-      const y = 760 + i * 72;
-      ctx.textAlign = 'left';
-      ctx.fillStyle = row.isWinner ? '#f0b429' : '#9aa0c8';
-      ctx.font = '700 30px system-ui, sans-serif';
-      ctx.fillText(String(i + 1), 64, y);
+    // Podium bars: height encodes finishing place, the printed number is the
+    // real score. In lowest-wins games the smallest score still gets the tallest
+    // bar, so the winner always reads as the winner at a glance. The explanation
+    // lives in the on-screen hint, not baked into the shared image.
+    const lower = Ranking.directionFor(target, result && result.lowerWins);
+    const ordered = data.standings.slice().sort(function (a, b) {
+      if (a.isWinner !== b.isWinner) return a.isWinner ? -1 : 1;
+      return lower ? a.total - b.total : b.total - a.total;
+    }).slice(0, 10);
+    const baseline = 900;
+    const column = (W - 128) / ordered.length;
+    const barWidth = Math.min(column - 14, 96);
+    const emojiFont = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui';
+    ordered.forEach(function (row, i) {
+      const cx = 64 + column * (i + 0.5);
+      const height = Math.max(52, Math.round(200 * Math.pow(0.82, i)));
+      const top = baseline - height;
+      const barX = cx - barWidth / 2;
+      const color = /^#[0-9a-f]{6}$/i.test(row.color) ? row.color : '#5bc8af';
+      const gradient = ctx.createLinearGradient(0, top, 0, baseline);
+      gradient.addColorStop(0, row.isWinner ? '#f6c455' : '#4c5488');
+      gradient.addColorStop(1, row.isWinner ? '#c98d0a' : '#2f355c');
+      ctx.fillStyle = gradient;
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(barX, top, barWidth, height, [10, 10, 0, 0]);
+        ctx.fill();
+      } else {
+        ctx.fillRect(barX, top, barWidth, height);
+      }
+      if (height >= 90) {
+        ctx.fillStyle = row.isWinner ? '#241a02' : '#c7cbe6';
+        ctx.font = '800 24px system-ui, sans-serif';
+        ctx.fillText(String(i + 1), cx, baseline - 18);
+      }
+      // Coloured disc + animal emoji, with the name still readable if the
+      // device has no emoji glyph.
+      const disc = Math.min(30, Math.round(column * 0.38));
+      const discY = top - disc - 12;
+      ctx.beginPath();
+      ctx.arc(cx, discY, disc, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = row.isWinner ? '#f0b429' : 'rgba(255,255,255,0.25)';
+      ctx.stroke();
+      ctx.fillStyle = '#111428';
+      ctx.font = Math.round(disc * 1.15) + 'px ' + emojiFont;
+      ctx.fillText(row.emoji || '', cx, discY + disc * 0.36);
+      ctx.fillStyle = row.isWinner ? '#241a02' : '#f2f3ff';
+      ctx.font = '700 28px system-ui, sans-serif';
+      ctx.fillText(String(row.total), cx, discY + disc + 30);
       ctx.fillStyle = row.isWinner ? '#f2f3ff' : '#9aa0c8';
-      ctx.font = '500 36px system-ui, sans-serif';
-      // Emoji glyphs differ (or go missing) in canvas across devices; names
-      // keep the shared image consistent everywhere.
-      fitCanvasText(ctx, row.name, W - 320, 36);
-      ctx.fillText(row.name, 132, y);
-      ctx.textAlign = 'right';
-      ctx.font = '700 36px system-ui, sans-serif';
-      ctx.fillText(String(row.total), W - 64, y);
+      const nameSize = ordered.length > 7 ? 20 : 24;
+      ctx.font = '600 ' + nameSize + 'px system-ui, sans-serif';
+      fitCanvasText(ctx, row.name, column - 6, nameSize, '600');
+      ctx.fillText(row.name, cx, baseline + 34);
     });
     ctx.textAlign = 'center';
     ctx.fillStyle = '#6f769e';
