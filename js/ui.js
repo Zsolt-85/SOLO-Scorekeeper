@@ -44,8 +44,6 @@
     play: document.getElementById('view-game'),
     podium: document.getElementById('view-podium'),
     rules: document.getElementById('view-rules'),
-    friends: document.getElementById('view-friends'),
-    community: document.getElementById('view-community'),
     leaderboard: document.getElementById('view-leaderboard'),
     history: document.getElementById('view-history'),
     players: document.getElementById('view-players')
@@ -461,6 +459,8 @@
     try {
     const route = currentRoute();
     if (route.name === 'home') { navigate('library'); return; }
+    if (route.name === 'friends') { navigate('players'); return; }
+    if (route.name === 'community') { navigate('library'); return; }
     if (route.name === 'game' && route.id) { navigate('play/' + route.id); return; }
     if (route.name === 'new-game' && space) { navigate('library'); return; }
     if (route.name === 'box') {
@@ -510,8 +510,6 @@
       ui.podiumPlayed = null;
     }
     if (route.name === 'rules') views.rules.innerHTML = renderRules();
-    if (route.name === 'friends') views.friends.innerHTML = renderFriends();
-    if (route.name === 'community') views.community.innerHTML = renderCommunity();
     if (route.name === 'box' && (route.tab || 'table') === 'hall') {
       const key = 'box/' + route.id;
       if (ui.boardKey !== key) { ui.boardKey = key; loadBoard(); }
@@ -705,81 +703,6 @@
 
     if (ui.lobbyForm === 'join') html += joinSheetHtml();
     if (ui.addError) html += '<p class="error">' + escapeHtml(ui.addError) + '</p>';
-    return html;
-  }
-
-  function renderFriends() {
-    const people = {};
-    (backend.finishedGames() || []).forEach(function (game) {
-      (game.seats || []).forEach(function (seat) {
-        if (!seat || !seat.name) return;
-        const row = people[seat.name] || {
-          name: seat.name, emoji: seat.emoji, games: 0, last: 0, typeId: 'solo'
-        };
-        row.games += 1;
-        if ((game.startedAt || 0) >= row.last) {
-          row.last = game.startedAt || 0;
-          row.typeId = game.typeId || row.typeId;
-          if (seat.emoji) row.emoji = seat.emoji;
-        }
-        people[seat.name] = row;
-      });
-    });
-    const players = Object.keys(people).map(function (name) { return people[name]; })
-      .sort(function (a, b) { return b.games - a.games || b.last - a.last; });
-    let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">SCORELOCK</h1>'
-      + '<p class="tagline">Friends &mdash; everyone at your tables</p></div></header>';
-    html += '<section class="section"><div class="section-head"><h2>Players</h2></div>';
-    if (!players.length) {
-      html += '<p class="hint">No players yet &mdash; open a game and start a table. Every seat joins your circle.</p>';
-    } else {
-      html += '<div class="player-pool">' + players.map(function (player) {
-        return '<button type="button" class="player-tile" data-action="open-box" data-id="'
-          + escapeHtml(player.typeId) + '">'
-          + '<span class="tile-avatar" aria-hidden="true">' + escapeHtml(player.emoji || '&#127922;') + '</span>'
-          + '<strong class="tile-name">' + escapeHtml(player.name) + '</strong>'
-          + '<span class="tile-stats">' + player.games + ' game' + (player.games === 1 ? '' : 's') + '</span>'
-          + '</button>';
-      }).join('') + '</div>';
-    }
-    html += '</section>';
-    return html;
-  }
-
-  function renderCommunity() {
-    const visible = shelfOrder((backend.getLibrary() || [])
-      .filter(function (type) { return !type.archived; }));
-    const finished = backend.finishedGames() || [];
-    const plays = {};
-    finished.forEach(function (game) {
-      plays[game.typeId] = (plays[game.typeId] || 0) + 1;
-    });
-    const popular = Object.keys(plays).sort(function (a, b) {
-      return plays[b] - plays[a];
-    })[0] || null;
-    let html = '<header class="topbar library-topbar"><div><h1 class="wordmark">SCORELOCK</h1>'
-      + '<p class="tagline">Community &mdash; discover games</p></div></header>';
-    html += '<section class="section"><div class="section-head"><h2>Discover</h2>'
-      + '<button type="button" class="btn ghost" data-action="open-new-game">Add a game</button></div>';
-    if (!visible.length) {
-      html += '<p class="hint">Nothing to discover yet &mdash; add a game from the shelf.</p>';
-    } else {
-      if (finished.length) {
-        html += '<p class="hint">Most played around here: <strong>'
-          + escapeHtml((backend.getType(popular) || { name: '?' }).name)
-          + '</strong> with ' + plays[popular] + ' finished game' + (plays[popular] === 1 ? '' : 's') + '.</p>';
-      }
-      html += '<div class="shelf">' + visible.map(function (type) {
-        const count = finishedCountFor(type.id);
-        return '<button type="button" class="box-card" data-action="open-box" data-id="'
-          + escapeHtml(type.id) + '" aria-label="Open ' + escapeHtml(type.name) + '">'
-          + coverHtml(type)
-          + '<span class="box-chips">' + ruleChips(type) + '</span>'
-          + '<span class="box-meta">' + count + ' finished'
-          + (type.id === popular ? ' &middot; most played' : '') + '</span></button>';
-      }).join('') + '</div>';
-    }
-    html += '</section>';
     return html;
   }
 
