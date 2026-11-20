@@ -411,7 +411,8 @@
       standings: ranked.map(function (entry) {
         return {
           name: String(entry.seat.name || ''), emoji: String(entry.seat.emoji || ''),
-          total: entry.total, isWinner: !!entry.isWinner
+          color: String(entry.seat.color || ''), total: entry.total,
+          isWinner: !!entry.isWinner
         };
       })
     };

@@ -407,6 +407,19 @@ test('mergePlayers sorts pooled entries and handles empties', () => {
   assert.deepEqual(Leaderboard.mergePlayers(null, null, null, null), []);
 });
 
+test('cardData keeps player colours for the podium bars', () => {
+  const g = game({
+    seats: [
+      { id: 's1', name: 'Maya', emoji: '🐱', color: '#f0b429' },
+      { id: 's2', name: 'Sam', emoji: '🦊', color: '#5bc8af' }
+    ],
+    rounds: [{ id: 'r1', at: 15, points: { s1: 8, s2: 21 } }]
+  });
+  const card = Leaderboard.cardData(g, Leaderboard.resultFor(g, { mode: 'solo' }));
+  assert.deepEqual(card.standings.map(function (row) { return row.color; }),
+    ['#f0b429', '#5bc8af']);
+});
+
 test('rivalries counts shared games, ties and ignores solo appearances', () => {
   const results = [
     result('r1', 10, [p('maya', 'Maya', true), p('sam', 'Sam', false)]),
