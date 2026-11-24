@@ -1253,7 +1253,7 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
   border: 1px solid var(--rim);
   box-shadow: inset 0 1px 0 var(--rim), 0 6px 0 var(--edge), 0 16px 26px var(--contact);
 }
-.board-row, .pr-row, .tile {
+.board-row, .pr-row, .tile, .game-row, .pcard {
   background: linear-gradient(160deg, var(--face-top), var(--face-bottom));
   border: 1px solid var(--rim);
   box-shadow: inset 0 1px 0 var(--rim), 0 3px 0 var(--edge), 0 8px 14px var(--contact);
@@ -1284,6 +1284,10 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
 .btn.primary:hover:not(:disabled) {
   box-shadow: 0 7px 0 #8d6410, 0 18px 26px var(--contact), inset 0 1px 0 rgba(255,255,255,.5);
 }
-.pr-row:hover {
+.pr-row:hover, .game-row:hover {
   box-shadow: inset 0 1px 0 var(--rim), 0 4px 0 var(--edge), 0 12px 20px var(--contact);
 }
+.game-row:hover { border-color: var(--gold); }
+.pcard.on { border-color: var(--gold); }
+.pcard.confirming { border-color: var(--lose); }
+.pcard.add-card { border-style: dashed; }

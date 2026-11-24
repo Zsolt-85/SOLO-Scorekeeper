@@ -897,7 +897,9 @@
     html += '</div>';
 
     if (active.length) {
-      html += '<section class="section"><h2>Playing now</h2><ul class="games">'
+      html += '<section class="panel board-panel"><div class="board-head"><h2>Playing now</h2>'
+        + '<p class="board-meta">' + active.length + ' game' + (active.length === 1 ? '' : 's')
+        + '</p></div><ul class="games board-list">'
         + active.map(function (game) {
           return '<li><button class="game-row" data-action="resume-game" data-id="'
             + escapeHtml(game.id) + '"><span class="label">Round ' + (game.rounds.length + 1)
@@ -1249,11 +1251,14 @@
     const games = backend.finishedGames().filter(function (game) {
       return game.typeId === type.id;
     });
+    const head = '<section class="panel board-panel"><div class="board-head"><h2>'
+      + escapeHtml(type.name) + ' Log</h2>'
+      + '<p class="board-meta">' + games.length + ' finished game'
+      + (games.length === 1 ? '' : 's') + '</p></div>';
     if (!games.length) {
-      return '<div class="empty-state"><p>No matches yet.</p>'
-        + '<p class="hint">Play a game and it will show up here.</p></div>';
+      return head + '<p class="muted">No matches yet. Play a game and it will show up here.</p></section>';
     }
-    return '<ul class="games log-list">' + games.map(function (game) {
+    return head + '<ul class="games board-list log-list">' + games.map(function (game) {
       const ranked = Ranking.rank(game, Ranking.directionFor(game, true));
       const winner = ranked.filter(function (entry) { return entry.isWinner; })
         .map(function (entry) { return entry.seat.name + ' ' + entry.total; }).join(' & ');
@@ -1265,7 +1270,7 @@
         + '<span class="game-winner">🏆 ' + escapeHtml(winner) + '</span>'
         + '<span class="game-totals">' + others + ' · ' + escapeHtml(ruleLabel(game.rules)) + '</span>'
         + '</button></li>';
-    }).join('') + '</ul>';
+    }).join('') + '</ul></section>';
   }
 
   function joinSheetHtml() {
