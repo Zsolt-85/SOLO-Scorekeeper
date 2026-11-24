@@ -885,7 +885,7 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
     font-size: 0.8rem; padding: 0.4rem 0.5rem;
   }
   @media (hover: none) {
-    .pr-row:hover { transform: none; box-shadow: none; }
+    .pr-row:hover { transform: none; }
   }
 }
 
@@ -1273,3 +1273,17 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
     0 0 0 2px var(--gold), 0 16px 26px var(--contact);
 }
 .board-row.top, .tile.leading { border-color: var(--gold); }
+/* Score tiles keep their per-seat colour strip above the material edge. */
+.tile { border-top: 3px solid var(--tile-color); }
+.tile.leading { border-color: var(--gold); }
+/* Hover/press must deepen the object, never erase its resting depth — sticky
+   :hover on tablets would otherwise leave cards flat after a tap. */
+#view-library .box-card:hover {
+  box-shadow: inset 0 1px 0 var(--rim), 0 8px 0 var(--edge), 0 22px 34px var(--contact);
+}
+.btn.primary:hover:not(:disabled) {
+  box-shadow: 0 7px 0 #8d6410, 0 18px 26px var(--contact), inset 0 1px 0 rgba(255,255,255,.5);
+}
+.pr-row:hover {
+  box-shadow: inset 0 1px 0 var(--rim), 0 4px 0 var(--edge), 0 12px 20px var(--contact);
+}
