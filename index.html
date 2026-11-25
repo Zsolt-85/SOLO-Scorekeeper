@@ -4,34 +4,71 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SCORELOCK — Scorekeeper</title>
+<meta name="scorelock-version" content="2.1.0">
 <link rel="stylesheet" href="styles.css">
 <script src="js/themes.js"></script>
 <script>Themes.applyTheme(document, Themes.loadTheme(window.localStorage));</script>
 </head>
 <body>
-<div id="splash" class="splash" role="dialog" aria-modal="true" aria-label="Welcome to SCORELOCK">
+<div id="splash" class="splash" role="dialog" aria-modal="true" aria-labelledby="splash-title">
+  <div class="splash-halo" aria-hidden="true"></div>
   <div class="splash-inner">
-    <svg class="splash-mark" viewBox="0 0 120 90" aria-hidden="true">
-      <g transform="rotate(-13 38 45)">
-        <rect x="16" y="20" width="38" height="54" rx="7" fill="#fffaf0" stroke="#c9ac7c" stroke-width="2"/>
-        <path d="M35 32 l9 10 -9 10 -9 -10z" fill="#d06755"/>
-      </g>
-      <g transform="rotate(11 70 45)">
-        <rect x="50" y="16" width="38" height="54" rx="7" fill="#fffdf6" stroke="#c9ac7c" stroke-width="2"/>
-        <path d="M69 28 c-6 -8 -15 0 0 11 c15 -11 6 -19 0 -11z" fill="#4c3a25"/>
-      </g>
-      <path d="M55 45 v-7 a9 9 0 0 1 18 0 v7" fill="none" stroke="#8d6435" stroke-width="5" stroke-linecap="round"/>
-      <rect x="51" y="43" width="26" height="24" rx="5" fill="#8d6435"/>
-      <circle cx="64" cy="54" r="3.4" fill="#f5e3bd"/>
-    </svg>
-    <h1 class="splash-title">Scorelock</h1>
-    <p class="splash-tagline">Your Universal Card<br/>Game Scorekeeper.</p>
+    <div class="splash-emblem" aria-hidden="true">
+      <svg class="splash-mark" viewBox="0 0 300 220">
+        <defs>
+          <linearGradient id="splashGold" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#f9e7b4"/>
+            <stop offset=".45" stop-color="#d6ad5c"/>
+            <stop offset="1" stop-color="#8a6026"/>
+          </linearGradient>
+          <linearGradient id="splashCard" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#fff5dc"/>
+            <stop offset="1" stop-color="#e2c795"/>
+          </linearGradient>
+        </defs>
+        <path d="M132 24 l8 12 10-15 10 15 8-12 -4 24 h-28z" fill="url(#splashGold)" stroke="#6b4a1c" stroke-width="1.5"/>
+        <circle cx="150" cy="20" r="3" fill="#f7e6b5"/>
+        <g transform="rotate(-20 150 110)">
+          <rect x="72" y="52" width="66" height="92" rx="9" fill="url(#splashCard)" stroke="#a87932" stroke-width="2"/>
+          <text x="84" y="78" font-family="Georgia,serif" font-size="24" fill="#3a2a16">A</text>
+          <path d="M105 88 c-8 -11 -19 0 0 14 c19 -14 8 -25 0 -14z" fill="#1c140b"/>
+        </g>
+        <g transform="rotate(20 150 110)">
+          <rect x="162" y="52" width="66" height="92" rx="9" fill="url(#splashCard)" stroke="#a87932" stroke-width="2"/>
+          <text x="174" y="78" font-family="Georgia,serif" font-size="24" fill="#8d2b22">A</text>
+          <path d="M195 85 c0 -8 12 -12 12 -3 c0 8 -12 16 -12 20 c0 -4 -12 -12 -12 -20 c0 -9 12 -5 12 3z" fill="#a33226"/>
+        </g>
+        <g transform="rotate(0 150 110)">
+          <rect x="117" y="44" width="66" height="92" rx="9" fill="url(#splashCard)" stroke="#a87932" stroke-width="2"/>
+          <text x="129" y="70" font-family="Georgia,serif" font-size="24" fill="#3a2a16">A</text>
+          <path d="M150 80 l10 14 -10 14 -10 -14z" fill="#3a2a16"/>
+        </g>
+        <path d="M124 116 v-24 a26 26 0 0 1 52 0 v24" fill="none" stroke="url(#splashGold)" stroke-width="13" stroke-linecap="round"/>
+        <rect x="112" y="108" width="76" height="64" rx="13" fill="url(#splashGold)" stroke="#5a3d17" stroke-width="2"/>
+        <circle cx="150" cy="132" r="8" fill="#35240f"/>
+        <path d="M146 138 h8 l3 16 h-14z" fill="#35240f"/>
+        <g transform="rotate(8 213 150)">
+          <rect x="190" y="122" width="46" height="58" rx="6" fill="#fff6df" stroke="#a87932" stroke-width="2"/>
+          <path d="M194 134 h38 M194 144 h38 M194 154 h38" stroke="#c8ab72" stroke-width="1.5"/>
+          <path d="M200 130 l4 6 M210 130 l4 6 M220 130 l4 6" stroke="#6b4a1c" stroke-width="2"/>
+        </g>
+        <circle cx="84" cy="152" r="3" fill="#e8c879"/>
+        <circle cx="226" cy="94" r="2.5" fill="#e8c879"/>
+      </svg>
+    </div>
+    <h1 id="splash-title" class="splash-title">SCORELOCK</h1>
+    <p class="splash-tagline">Your Universal Card Game Scorekeeper.</p>
+    <p class="splash-chip">UNO <span>·</span> SOLO <span>·</span> CUSTOM GAMES</p>
     <ul id="splash-games" class="splash-games" aria-label="Your games"></ul>
-    <button type="button" id="splash-start" class="splash-start">Tap to Start</button>
-    <div class="splash-spinner" aria-hidden="true"></div>
+    <div id="splash-status" class="splash-status" role="status" aria-live="polite">Checking for updates…</div>
+    <div id="splash-progress" class="splash-progress" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div id="splash-progress-fill" class="splash-progress-fill"></div>
+    </div>
+    <button type="button" id="splash-start" class="splash-start" hidden>Enter Scorelock</button>
+    <button type="button" id="splash-retry" class="splash-retry" hidden>Retry checks</button>
+    <div id="splash-version" class="splash-version"></div>
   </div>
 </div>
-<script>setTimeout(function(){var s=document.getElementById('splash');if(s&&!s.dataset.done){s.remove();}},20000);</script>
 <nav class="sidebar" aria-label="Main menu">
   <a class="sidebar-brand" href="#/library">SCORELOCK</a>
   <a class="sidebar-link" href="#/library">Library</a>
@@ -42,7 +79,6 @@
   <hr class="sidebar-divider" />
   <a class="sidebar-link" href="#/rules">How to play</a>
   <button type="button" class="sidebar-link" data-action="open-join">Join a live table</button>
-  <button type="button" class="sidebar-link" data-action="refresh-app">Sync &amp; refresh</button>
   <a class="sidebar-link" href="#/settings">Settings</a>
 </nav>
 <div id="banner" class="banner" role="status" hidden></div>
