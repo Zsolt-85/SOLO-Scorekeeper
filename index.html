@@ -11,106 +11,16 @@
 </head>
 <body>
 <div id="splash" class="splash" role="dialog" aria-modal="true" aria-labelledby="splash-title">
-  <div class="splash-halo" aria-hidden="true"></div>
-  <div class="splash-inner">
-    <div class="splash-engraving" aria-hidden="true">
-      <svg class="splash-ornament" viewBox="0 0 380 820" preserveAspectRatio="none">
-        <g fill="none" stroke="#c9a15c" stroke-width="1" opacity=".42">
-          <path d="M12 104 V34 Q12 12 34 12 H104 M18 90 V38 Q18 18 38 18 H90 M36 18 q10 16 26 20 M18 36 q16 10 20 26"/>
-          <path d="M368 104 V34 Q368 12 346 12 H276 M362 90 V38 Q362 18 342 18 H290 M344 18 q-10 16 -26 20 M362 36 q-16 10 -20 26"/>
-          <path d="M12 716 V786 Q12 808 34 808 H104 M18 730 V782 Q18 802 38 802 H90 M36 802 q10 -16 26 -20 M18 784 q16 -10 20 -26"/>
-          <path d="M368 716 V786 Q368 808 346 808 H276 M362 730 V782 Q362 802 342 802 H290 M344 802 q-10 -16 -26 -20 M362 784 q-16 -10 -20 -26"/>
-        </g>
-        <g stroke="#c9a15c" stroke-width=".6" fill="none" opacity=".16">
-          <path d="M24 24 H100 M24 48 H100 M24 72 H100 M24 96 H100 M24 24 V96 M49 24 V96 M74 24 V96 M100 24 V96"/>
-          <path d="M280 24 H356 M280 48 H356 M280 72 H356 M280 96 H356 M280 24 V96 M305 24 V96 M330 24 V96 M356 24 V96"/>
-        </g>
-        <g font-family="Georgia,serif" font-size="15" fill="#d7ae67" opacity=".34" text-anchor="middle">
-          <text x="36" y="42">♠</text><text x="61" y="42">♥</text><text x="86" y="42">♦</text>
-          <text x="36" y="67">♣</text><text x="61" y="67">♠</text><text x="86" y="67">♥</text>
-          <text x="36" y="92">♦</text><text x="61" y="92">♣</text><text x="86" y="92">♠</text>
-          <text x="292" y="42">♥</text><text x="317" y="42">♦</text><text x="342" y="42">♣</text>
-          <text x="292" y="67">♠</text><text x="317" y="67">♥</text><text x="342" y="67">♦</text>
-          <text x="292" y="92">♣</text><text x="317" y="92">♠</text><text x="342" y="92">♥</text>
-        </g>
-        <g fill="#d7ae67" opacity=".55">
-          <path d="M190 4 l7 9 -7 9 -7 -9z"/>
-          <path d="M376 410 l-9 7 9 7 9 -7z"/>
-          <path d="M4 410 l9 7 -9 7 -9 -7z"/>
-          <path d="M190 816 l7 -9 -7 -9 -7 9z"/>
-        </g>
-      </svg>
+  <div class="splash-panel">
+    <img class="splash-art" src="assets/vault-splash.png" alt="" aria-hidden="true">
+    <h1 id="splash-title" class="splash-title">SCORELOCK</h1>
+    <div id="splash-status" class="splash-status" role="status" aria-live="polite">Checking for updates…</div>
+    <div id="splash-progress" class="splash-progress" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div id="splash-progress-fill" class="splash-progress-fill"></div>
     </div>
-    <div class="splash-top">
-      <div class="splash-emblem" aria-hidden="true">
-        <svg class="splash-mark" viewBox="0 0 300 232">
-          <defs>
-            <linearGradient id="splashGold" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#fff4d2"/><stop offset=".32" stop-color="#e9c781"/>
-              <stop offset=".66" stop-color="#bb8c41"/><stop offset="1" stop-color="#77501d"/>
-            </linearGradient>
-            <linearGradient id="splashGoldV" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#fbe8b4"/><stop offset="1" stop-color="#a97a34"/>
-            </linearGradient>
-            <linearGradient id="splashCard" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#d6b986"/>
-            </linearGradient>
-          </defs>
-          <g stroke="#d0a45e" stroke-width="1" opacity=".15">
-            <path d="M150 116 L20 30 M150 116 L20 116 M150 116 L20 202 M150 116 L150 16 M150 116 L280 30 M150 116 L280 116 M150 116 L280 202 M150 116 L150 216"/>
-          </g>
-          <g transform="rotate(-22 150 116)">
-            <rect x="60" y="54" width="72" height="104" rx="9" fill="url(#splashCard)" stroke="#9c6d2c" stroke-width="2"/>
-            <rect x="66" y="60" width="60" height="92" rx="5" fill="none" stroke="#c2a066" stroke-width="1" opacity=".8"/>
-            <text x="73" y="84" font-family="Georgia,serif" font-size="26" fill="#2f2312">A</text>
-            <path d="M96 102 c-9 -13 -22 0 0 17 c22 -17 9 -30 0 -17z" fill="#2f2312"/>
-            <text x="112" y="143" font-family="Georgia,serif" font-size="16" fill="#2f2312">♠</text>
-          </g>
-          <g transform="rotate(22 150 116)">
-            <rect x="168" y="54" width="72" height="104" rx="9" fill="url(#splashCard)" stroke="#9c6d2c" stroke-width="2"/>
-            <rect x="174" y="60" width="60" height="92" rx="5" fill="none" stroke="#c2a066" stroke-width="1" opacity=".8"/>
-            <text x="181" y="84" font-family="Georgia,serif" font-size="26" fill="#8d2b22">A</text>
-            <path d="M204 101 c0 -9 14 -14 14 -4 c0 9 -14 18 -14 23 c0 -5 -14 -14 -14 -23 c0 -10 14 -5 14 4z" fill="#a33226"/>
-            <text x="220" y="143" font-family="Georgia,serif" font-size="16" fill="#a33226">♥</text>
-          </g>
-          <g transform="rotate(-2 150 108)">
-            <rect x="114" y="44" width="72" height="104" rx="9" fill="url(#splashCard)" stroke="#9c6d2c" stroke-width="2"/>
-            <rect x="120" y="50" width="60" height="92" rx="5" fill="none" stroke="#c2a066" stroke-width="1" opacity=".8"/>
-            <text x="127" y="74" font-family="Georgia,serif" font-size="26" fill="#2f2312">A</text>
-            <path d="M150 88 l12 17 -12 17 -12 -17z" fill="#2f2312"/>
-            <text x="164" y="133" font-family="Georgia,serif" font-size="16" fill="#2f2312">♦</text>
-          </g>
-          <path d="M118 124 v-28 a32 32 0 0 1 64 0 v28" fill="none" stroke="#4a341a" stroke-width="18" stroke-linecap="round"/>
-          <path d="M118 124 v-28 a32 32 0 0 1 64 0 v28" fill="none" stroke="url(#splashGold)" stroke-width="13" stroke-linecap="round"/>
-          <rect x="104" y="114" width="92" height="76" rx="15" fill="url(#splashGold)" stroke="#503718" stroke-width="2"/>
-          <rect x="111" y="121" width="78" height="62" rx="10" fill="none" stroke="#fff0c4" stroke-width="1.4" opacity=".38"/>
-          <circle cx="150" cy="143" r="9" fill="#2b1d0d"/>
-          <path d="M146 149 h8 l3 18 h-14z" fill="#2b1d0d"/>
-          <circle cx="115" cy="126" r="2.6" fill="#6b4a1c"/><circle cx="185" cy="126" r="2.6" fill="#6b4a1c"/>
-          <circle cx="115" cy="178" r="2.6" fill="#6b4a1c"/><circle cx="185" cy="178" r="2.6" fill="#6b4a1c"/>
-          <g transform="rotate(9 222 160)">
-            <rect x="198" y="128" width="50" height="64" rx="6" fill="#fff6df" stroke="#9c6d2c" stroke-width="2"/>
-            <path d="M204 142 h38 M204 154 h38 M204 166 h38 M204 178 h38" stroke="#c8ab72" stroke-width="1.2" opacity=".8"/>
-            <path d="M210 136 a3 3 0 1 0 0.1 0 M220 136 a3 3 0 1 0 0.1 0 M230 136 a3 3 0 1 0 0.1 0 M240 136 a3 3 0 1 0 0.1 0" fill="none" stroke="#6b4a1c" stroke-width="1.6"/>
-            <path d="M208 150 l4 6 M214 150 l4 6 M220 162 l4 6 M226 162 l4 6 M232 174 l4 6" stroke="#6b4a1c" stroke-width="2"/>
-          </g>
-          <circle cx="72" cy="180" r="3" fill="#e8c879"/><circle cx="240" cy="82" r="2.5" fill="#e8c879"/>
-        </svg>
-      </div>
-      <div class="splash-diamond" aria-hidden="true"></div>
-      <h1 id="splash-title" class="splash-title">SCORELOCK</h1>
-      <p class="splash-tagline">Your Universal Card Game Scorekeeper.</p>
-      <p class="splash-chip">UNO <span>·</span> SOLO <span>·</span> CUSTOM GAMES</p>
-    </div>
-    <div class="splash-bottom">
-      <div id="splash-status" class="splash-status" role="status" aria-live="polite">Checking for updates…</div>
-      <div id="splash-progress" class="splash-progress" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-        <div id="splash-progress-fill" class="splash-progress-fill"></div>
-      </div>
-      <button type="button" id="splash-start" class="splash-start" hidden>Enter Scorelock</button>
-      <button type="button" id="splash-retry" class="splash-retry" hidden>Retry checks</button>
-      <div id="splash-version" class="splash-version"></div>
-    </div>
+    <button type="button" id="splash-start" class="splash-start" hidden>Enter Scorelock</button>
+    <button type="button" id="splash-retry" class="splash-retry" hidden>Retry checks</button>
+    <div id="splash-version" class="splash-version"></div>
   </div>
 </div>
 <nav class="sidebar" aria-label="Main menu">

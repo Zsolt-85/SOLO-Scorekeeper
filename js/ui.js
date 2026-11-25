@@ -334,7 +334,7 @@
   const SHELL = [
     './', 'styles.css', 'js/ranking.js', 'js/library.js', 'js/model.js', 'js/leaderboard.js',
     'js/store.js', 'js/space.js', 'js/firebase-config.js', 'js/firebase.js',
-    'js/sync.js', 'js/reveal.js', 'js/startup.js', 'js/ui.js'
+    'js/sync.js', 'js/reveal.js', 'js/startup.js', 'js/ui.js', 'assets/vault-splash.png'
   ];
 
   // A normal reload can still be served from the browser's copy for up to ten
@@ -342,10 +342,14 @@
   // cache: 'reload' replaces those cached copies first, so the reload afterwards
   // really does run the newest build.
   function revalidateShell() {
-    if (!window.fetch) return Promise.resolve();
+    // A local file has no server to revalidate against; there is nothing stale.
+    if (!window.fetch || location.protocol === 'file:') return Promise.resolve();
     return Promise.all(SHELL.map(function (path) {
       return fetch(new URL(path, location.href).href, { cache: 'reload', credentials: 'same-origin' })
-        .catch(function () { return null; });
+        .then(function (response) {
+          if (!response.ok) throw new Error('Could not update ' + path);
+          return response;
+        });
     }));
   }
 
@@ -2575,7 +2579,7 @@ else if (action === 'open-new-game') openNewGame();
     if (!dialog) return;
     const controls = Array.prototype.slice.call(
       dialog.querySelectorAll('button:not([disabled]), a[href], input:not([disabled])')
-    );
+    ).filter(function (el) { return !el.hidden && el.offsetParent !== null; });
     if (!controls.length) return;
     const first = controls[0];
     const last = controls[controls.length - 1];
@@ -2646,50 +2650,68 @@ else if (action === 'open-new-game') openNewGame();
     const reduce = Boolean(window.matchMedia
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     // The splash is modal: keep the app and menu out of the tab order behind it.
-    const background = [document.querySelector('.sidebar'), document.getElementById('app')]
-      .filter(function (el) { return !!el; });
+    const background = [document.querySelector('.sidebar'), document.querySelector('.hamburger'),
+      document.getElementById('app')].filter(function (el) { return !!el; });
     background.forEach(function (el) { el.inert = true; });
 
     const meta = document.querySelector('meta[name="scorelock-version"]');
     const current = (meta && meta.content) || '2.1.0';
     if (versionEl) versionEl.textContent = 'v' + current + ' · Secure Scorekeeping';
-    let updateTarget = null;
-
-    const tasks = [
-      {
-        name: 'version',
-        run: function () {
-          if (!window.fetch) return;
-          return fetch(new URL('./', location.href).href,
-            { cache: 'reload', credentials: 'same-origin' })
-            .then(function (response) { return response.ok ? response.text() : null; })
-            .then(function (html) {
-              const remote = html ? Startup.parseVersion(html) : null;
-              if (!remote || Startup.compare(remote, current) <= 0) return;
-              let updated = false;
-              try { updated = !!sessionStorage.getItem('scorelock.update.' + remote); }
-              catch (error) { updated = false; }
-              if (!updated) updateTarget = remote;
-            })
-            .catch(function () { return null; }); // file:// and offline: cannot check locally
+    function makeTasks(target) {
+      return [
+        {
+          name: 'version',
+          run: function () {
+            // A local file (or no fetch at all) has no server to check against.
+            if (!window.fetch || location.protocol === 'file:') return;
+            return fetch(new URL('./', location.href).href,
+              { cache: 'reload', credentials: 'same-origin' })
+              .then(function (response) {
+                if (!response.ok) throw new Error('Version check failed');
+                return response.text();
+              })
+              .then(function (html) {
+                const remote = html ? Startup.parseVersion(html) : null;
+                if (!remote || Startup.compare(remote, current) <= 0) return;
+                let attempts = 0;
+                try {
+                  attempts = Number(sessionStorage.getItem('scorelock.update.' + remote) || 0);
+                } catch (error) { attempts = 0; }
+                if (attempts >= 2) {
+                  try { sessionStorage.removeItem('scorelock.update.' + remote); }
+                  catch (error) { /* storage can be blocked */ }
+                  throw new Error('Update could not be applied');
+                }
+                target.remote = remote;
+                target.attempts = attempts;
+              });
+          }
+        },
+        { name: 'shell', run: revalidateShell },
+        {
+          name: 'board',
+          run: function () {
+            return sync.fetchBoard().then(function (board) {
+              const local = location.protocol === 'file:' || navigator.onLine === false;
+              if (!local && board && board.stale) throw new Error('Leaderboard is stale');
+              return null;
+            });
+          }
+        },
+        {
+          name: 'drain',
+          run: function () {
+            const idle = space && space.whenIdle ? space.whenIdle(4000) : Promise.resolve(true);
+            const flush = sync.flush().catch(function (error) {
+              if (location.protocol === 'file:' || navigator.onLine === false) return null;
+              throw error;
+            });
+            return Promise.all([flush, idle.catch(function () { return false; })])
+              .then(function () { return null; });
+          }
         }
-      },
-      { name: 'shell', run: revalidateShell },
-      {
-        name: 'board',
-        run: function () { return sync.fetchBoard().then(function () { return null; }); }
-      },
-      {
-        name: 'drain',
-        run: function () {
-          const idle = space && space.whenIdle ? space.whenIdle(4000) : Promise.resolve(true);
-          return Promise.all([
-            sync.flush().catch(function () { return null; }),
-            idle.catch(function () { return false; })
-          ]).then(function () { return null; });
-        }
-      }
-    ];
+      ];
+    }
 
     function setProgress(done, total) {
       const percent = total ? Math.round((done / total) * 100) : 100;
@@ -2717,26 +2739,43 @@ else if (action === 'open-new-game') openNewGame();
       }, reduce ? 0 : 460);
     }
 
+    let generation = 0;
+    let watchdog = null;
+
     function run() {
+      generation += 1;
+      const mine = generation;
+      if (watchdog) clearTimeout(watchdog);
+      const target = {};
+      const tasks = makeTasks(target);
       if (status) { status.textContent = 'Checking for updates…'; status.classList.remove('is-error'); }
       if (start) start.hidden = true;
       if (retry) retry.hidden = true;
-      updateTarget = null;
       setProgress(0, tasks.length);
+      // A stall offers Retry only; it can never reveal Enter or remove the splash.
+      watchdog = setTimeout(function () {
+        if (mine === generation && !splash.dataset.done && start && start.hidden) {
+          fail('Still checking — try again.');
+        }
+      }, 20000);
       Startup.create(tasks).start(setProgress).then(function (result) {
+        if (mine !== generation) return;
+        if (watchdog) { clearTimeout(watchdog); watchdog = null; }
         if (!result.ok) {
           fail("Couldn't reach the server — some checks didn't finish.");
           return;
         }
-        if (updateTarget) {
-          if (status) status.textContent = 'Updating to v' + updateTarget + '…';
+        if (target.remote) {
+          if (status) status.textContent = 'Updating to v' + target.remote + '…';
           setProgress(tasks.length, tasks.length);
-          try { sessionStorage.setItem('scorelock.update.' + updateTarget, '1'); }
-          catch (error) { /* storage can be blocked; the reload still runs */ }
+          try {
+            sessionStorage.setItem('scorelock.update.' + target.remote, String(target.attempts + 1));
+          } catch (error) { /* storage can be blocked; the reload still runs */ }
           location.reload();
           return;
         }
         if (status) status.textContent = 'Ready.';
+        if (retry) retry.hidden = true;
         if (start) { start.hidden = false; start.focus(); }
       });
     }
@@ -2751,10 +2790,6 @@ else if (action === 'open-new-game') openNewGame();
         dismiss();
       });
     }
-    // The splash can never be skipped by a timer: a stall offers Retry only.
-    setTimeout(function () {
-      if (!splash.dataset.done && start && start.hidden) fail('Still checking — try again.');
-    }, 20000);
     run();
   })();
 })();

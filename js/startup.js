@@ -58,10 +58,13 @@
         const all = list.map(function (task, index) {
           return Promise.resolve()
             .then(function () { return task.run(); })
-            .then(function (value) { results[index] = value; },
-              function (error) { failed.push({ name: task.name, error: error }); })
-            .then(function () {
+            .then(function (value) {
+              results[index] = value;
               settled += 1;
+            }, function (error) {
+              failed.push({ name: task.name, error: error });
+            })
+            .then(function () {
               report(settled, total);
             });
         });

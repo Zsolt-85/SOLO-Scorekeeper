@@ -64,7 +64,7 @@ test('runner names the failing task and leaves no result for it', async () => {
   assert.equal(result.failed[0].name, 'board');
   assert.equal(result.failed[0].error.message, 'offline');
   assert.equal(result.results[1], undefined);
-  assert.deepEqual(progress[progress.length - 1], [3, 3]);
+  assert.deepEqual(progress[progress.length - 1], [2, 3]);
 });
 
 test('runner start resets progress for a retry', async () => {
