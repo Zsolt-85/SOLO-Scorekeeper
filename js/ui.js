@@ -341,9 +341,13 @@
   // minutes (GitHub Pages caches that long). Fetching every shell file with
   // cache: 'reload' replaces those cached copies first, so the reload afterwards
   // really does run the newest build.
+  function isLocalOrigin() {
+    return location.protocol !== 'http:' && location.protocol !== 'https:';
+  }
+
   function revalidateShell() {
     // A local file has no server to revalidate against; there is nothing stale.
-    if (!window.fetch || location.protocol === 'file:') return Promise.resolve();
+    if (!window.fetch || isLocalOrigin()) return Promise.resolve();
     return Promise.all(SHELL.map(function (path) {
       return fetch(new URL(path, location.href).href, { cache: 'reload', credentials: 'same-origin' })
         .then(function (response) {
@@ -2663,7 +2667,7 @@ else if (action === 'open-new-game') openNewGame();
           name: 'version',
           run: function () {
             // A local file (or no fetch at all) has no server to check against.
-            if (!window.fetch || location.protocol === 'file:') return;
+            if (!window.fetch || isLocalOrigin()) return;
             return fetch(new URL('./', location.href).href,
               { cache: 'reload', credentials: 'same-origin' })
               .then(function (response) {
@@ -2692,7 +2696,7 @@ else if (action === 'open-new-game') openNewGame();
           name: 'board',
           run: function () {
             return sync.fetchBoard().then(function (board) {
-              const local = location.protocol === 'file:' || navigator.onLine === false;
+              const local = isLocalOrigin() || navigator.onLine === false;
               if (!local && board && board.stale) throw new Error('Leaderboard is stale');
               return null;
             });
@@ -2703,7 +2707,7 @@ else if (action === 'open-new-game') openNewGame();
           run: function () {
             const idle = space && space.whenIdle ? space.whenIdle(4000) : Promise.resolve(true);
             const flush = sync.flush().catch(function (error) {
-              if (location.protocol === 'file:' || navigator.onLine === false) return null;
+              if (isLocalOrigin() || navigator.onLine === false) return null;
               throw error;
             });
             return Promise.all([flush, idle.catch(function () { return false; })])
