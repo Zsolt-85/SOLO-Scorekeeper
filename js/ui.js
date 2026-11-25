@@ -19,8 +19,7 @@
     pencil: { stroke: 2, paths: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>' },
     trash: { stroke: 2, paths: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>' },
     check: { stroke: 3, paths: '<path d="M20 6 9 17l-5-5"/>' },
-    plus: { stroke: 2, paths: '<path d="M12 5v14"/><path d="M5 12h14"/>' },
-    refresh: { stroke: 2, paths: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>' }
+    plus: { stroke: 2, paths: '<path d="M12 5v14"/><path d="M5 12h14"/>' }
   };
 
   const ui = {
@@ -28,7 +27,7 @@
     addError: '', addName: '', bannerDismissed: false, manageMode: false, pendingDelete: null,
     editRow: null, addBusy: false,
     lobbyForm: null, lobbyName: '', lobbyCode: '', lobbyNote: '', busy: null,
-    roundGameId: null, roundDraft: {}, refreshing: false, podiumPlayed: null,
+    roundGameId: null, roundDraft: {}, podiumPlayed: null,
     board: null, boardKey: null, boardName: '', boardEmoji: EMOJI[0], boardBusy: false,
     boardError: '', boardNotice: '', boardLoadError: '',
     showArchived: false, newGame: null, newGameError: '', newGameBusy: false,
@@ -335,7 +334,7 @@
   const SHELL = [
     './', 'styles.css', 'js/ranking.js', 'js/library.js', 'js/model.js', 'js/leaderboard.js',
     'js/store.js', 'js/space.js', 'js/firebase-config.js', 'js/firebase.js',
-    'js/sync.js', 'js/reveal.js', 'js/ui.js'
+    'js/sync.js', 'js/reveal.js', 'js/startup.js', 'js/ui.js'
   ];
 
   // A normal reload can still be served from the browser's copy for up to ten
@@ -348,25 +347,6 @@
       return fetch(new URL(path, location.href).href, { cache: 'reload', credentials: 'same-origin' })
         .catch(function () { return null; });
     }));
-  }
-
-  function refreshApp() {
-    if (ui.refreshing) return;
-    const typed = Object.keys(ui.roundDraft).some(function (id) {
-      return String(ui.roundDraft[id] || '').trim() !== '';
-    });
-    if (typed && !window.confirm('There are points typed for this round that are not saved yet. Refresh anyway?')) return;
-    ui.refreshing = true;
-    document.querySelectorAll('[data-action="refresh-app"]').forEach(function (button) {
-      button.disabled = true;
-      button.setAttribute('aria-busy', 'true');
-    });
-    // Let any lobby write reach the server before tearing the page down.
-    const idle = space && space.whenIdle ? space.whenIdle(4000) : Promise.resolve(true);
-    idle.catch(function () { return false; })
-      .then(revalidateShell)
-      .catch(function () { return null; })
-      .then(function () { location.reload(); });
   }
 
   function joinLobby(input) {
@@ -2307,7 +2287,6 @@
     }
     else if (action === 'create-lobby') createLobby();
     else if (action === 'copy-code') copyCode();
-    else if (action === 'refresh-app') refreshApp();
     else if (action === 'open-join-lobby') {
       ui.lobbyForm = 'join'; ui.addError = ''; render(); focusById('lobby-code');
     }
@@ -2653,38 +2632,77 @@ else if (action === 'open-new-game') openNewGame();
     render();
   }
 
-  // Tap-to-start splash: show the real library, start the update check now, and
-  // leave only when the user taps the button (every load/reload).
-  (function finishSplash() {
+  // VAULT splash: everything that can go stale is checked before entry. The
+  // Enter button is only revealed once version, shell, data and writes agree.
+  (function initSplash() {
     const splash = document.getElementById('splash');
     if (!splash) return;
+    const status = document.getElementById('splash-status');
+    const progress = document.getElementById('splash-progress');
+    const fill = document.getElementById('splash-progress-fill');
+    const start = document.getElementById('splash-start');
+    const retry = document.getElementById('splash-retry');
+    const versionEl = document.getElementById('splash-version');
     const reduce = Boolean(window.matchMedia
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     // The splash is modal: keep the app and menu out of the tab order behind it.
     const background = [document.querySelector('.sidebar'), document.getElementById('app')]
       .filter(function (el) { return !!el; });
     background.forEach(function (el) { el.inert = true; });
-    const list = document.getElementById('splash-games');
-    const visible = shelfOrder((backend.getLibrary() || []).filter(function (type) {
-      return !type.archived;
-    }));
-    if (list) {
-      list.innerHTML = visible.slice(0, 3).map(function (type) {
-        return '<li><span class="splash-game-icon" aria-hidden="true">'
-          + escapeHtml(type.emoji || '🃏') + '</span><span>'
-          + escapeHtml(type.name) + '</span></li>';
-      }).join('') + (visible.length > 3
-        ? '<li><span class="splash-game-icon" aria-hidden="true">🎲</span>'
-          + '<span>Custom Games</span></li>'
-        : '');
+
+    const meta = document.querySelector('meta[name="scorelock-version"]');
+    const current = (meta && meta.content) || '2.1.0';
+    if (versionEl) versionEl.textContent = 'v' + current + ' · Secure Scorekeeping';
+    let updateTarget = null;
+
+    const tasks = [
+      {
+        name: 'version',
+        run: function () {
+          if (!window.fetch) return;
+          return fetch(new URL('./', location.href).href,
+            { cache: 'reload', credentials: 'same-origin' })
+            .then(function (response) { return response.ok ? response.text() : null; })
+            .then(function (html) {
+              const remote = html ? Startup.parseVersion(html) : null;
+              if (!remote || Startup.compare(remote, current) <= 0) return;
+              let updated = false;
+              try { updated = !!sessionStorage.getItem('scorelock.update.' + remote); }
+              catch (error) { updated = false; }
+              if (!updated) updateTarget = remote;
+            })
+            .catch(function () { return null; }); // file:// and offline: cannot check locally
+        }
+      },
+      { name: 'shell', run: revalidateShell },
+      {
+        name: 'board',
+        run: function () { return sync.fetchBoard().then(function () { return null; }); }
+      },
+      {
+        name: 'drain',
+        run: function () {
+          const idle = space && space.whenIdle ? space.whenIdle(4000) : Promise.resolve(true);
+          return Promise.all([
+            sync.flush().catch(function () { return null; }),
+            idle.catch(function () { return false; })
+          ]).then(function () { return null; });
+        }
+      }
+    ];
+
+    function setProgress(done, total) {
+      const percent = total ? Math.round((done / total) * 100) : 100;
+      if (fill) fill.style.width = percent + '%';
+      if (progress) progress.setAttribute('aria-valuenow', String(percent));
     }
-    const revalidate = reduce
-      ? Promise.resolve()
-      : Promise.race([
-        (typeof revalidateShell === 'function'
-          ? revalidateShell() : Promise.resolve()).catch(function () { return null; }),
-        new Promise(function (resolve) { setTimeout(resolve, 900); })
-      ]);
+
+    function fail(message) {
+      if (status) { status.textContent = message; status.classList.add('is-error'); }
+      if (retry) retry.hidden = false;
+      if (start) start.hidden = true;
+    }
+
     function dismiss() {
       splash.classList.add('splash-out');
       setTimeout(function () {
@@ -2698,16 +2716,45 @@ else if (action === 'open-new-game') openNewGame();
         if (target && typeof target.focus === 'function') target.focus();
       }, reduce ? 0 : 460);
     }
-    const start = document.getElementById('splash-start');
+
+    function run() {
+      if (status) { status.textContent = 'Checking for updates…'; status.classList.remove('is-error'); }
+      if (start) start.hidden = true;
+      if (retry) retry.hidden = true;
+      updateTarget = null;
+      setProgress(0, tasks.length);
+      Startup.create(tasks).start(setProgress).then(function (result) {
+        if (!result.ok) {
+          fail("Couldn't reach the server — some checks didn't finish.");
+          return;
+        }
+        if (updateTarget) {
+          if (status) status.textContent = 'Updating to v' + updateTarget + '…';
+          setProgress(tasks.length, tasks.length);
+          try { sessionStorage.setItem('scorelock.update.' + updateTarget, '1'); }
+          catch (error) { /* storage can be blocked; the reload still runs */ }
+          location.reload();
+          return;
+        }
+        if (status) status.textContent = 'Ready.';
+        if (start) { start.hidden = false; start.focus(); }
+      });
+    }
+
+    if (retry) retry.addEventListener('click', run);
     if (start) {
       start.addEventListener('click', function () {
         if (start.disabled) return;
         start.disabled = true;
-        splash.dataset.done = '1'; // safety timer must not remove it mid-fade
+        splash.dataset.done = '1';
         start.textContent = 'Setting the table…';
-        revalidate.then(dismiss);
+        dismiss();
       });
-      start.focus();
     }
+    // The splash can never be skipped by a timer: a stall offers Retry only.
+    setTimeout(function () {
+      if (!splash.dataset.done && start && start.hidden) fail('Still checking — try again.');
+    }, 20000);
+    run();
   })();
 })();

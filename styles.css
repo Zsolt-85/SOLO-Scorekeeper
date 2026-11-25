@@ -1162,14 +1162,18 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
 .splash.splash-out { opacity: 0; visibility: hidden; pointer-events: none; }
 .splash-inner {
   position: relative; z-index: 1;
-  width: min(420px, 90vw); padding: 2.4rem 1.9rem 2rem;
-  display: grid; justify-items: center; text-align: center;
-  background: linear-gradient(180deg, rgba(46, 34, 22, .96), rgba(22, 16, 11, .98));
+  width: min(380px, 92vw); height: min(820px, 94vh); min-height: 560px;
+  padding: 2.1rem 1.7rem 1.5rem;
+  display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  text-align: center; overflow: hidden;
+  background:
+    radial-gradient(95% 48% at 50% 20%, rgba(139, 96, 44, .26) 0%, rgba(0,0,0,0) 70%),
+    linear-gradient(180deg, #2e2117 0%, #1c140d 48%, #120d09 100%);
   border: 1px solid rgba(214, 173, 92, .55);
-  border-radius: 18px;
-  box-shadow: 0 0 0 5px rgba(20, 14, 9, .9),
-              0 0 0 6px rgba(214, 173, 92, .22),
-              0 30px 80px rgba(0, 0, 0, .65),
+  border-radius: 14px;
+  box-shadow: 0 0 0 5px rgba(16, 11, 7, .95),
+              0 0 0 6px rgba(214, 173, 92, .2),
+              0 30px 90px rgba(0, 0, 0, .7),
               inset 0 1px 0 rgba(249, 231, 180, .12);
 }
 .splash-inner::before {
@@ -1177,46 +1181,54 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
   border: 1px solid rgba(214, 173, 92, .2); border-radius: 11px;
 }
 .splash-inner::after {
-  content: "✦"; position: absolute; top: 6px; left: 50%;
+  content: "✦"; position: absolute; top: 5px; left: 50%;
   transform: translate(-50%, -50%);
-  color: #d6ad5c; font-size: 14px; background: #1a120b; padding: 0 8px;
+  color: #d6ad5c; font-size: 13px; background: #1a120b; padding: 0 8px;
+}
+.splash-engraving { position: absolute; inset: 8px; pointer-events: none; }
+.splash-engraving::after {
+  content: ""; position: absolute; left: 50%; top: 25%;
+  width: 620px; height: 620px; transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 0deg,
+    rgba(214, 173, 92, .085) 0deg 1deg, transparent 1deg 11deg);
+  mask-image: radial-gradient(circle, #000 0%, transparent 66%);
+}
+.splash-ornament { position: absolute; inset: 0; width: 100%; height: 100%; }
+.splash-top, .splash-bottom {
+  position: relative; z-index: 1; width: 100%;
+  display: flex; flex-direction: column; align-items: center;
+}
+.splash-diamond {
+  width: 9px; height: 9px; margin-top: 4px;
+  background: linear-gradient(135deg, #fbe8b4, #a97a34);
+  transform: rotate(45deg);
+  box-shadow: 0 0 10px rgba(231, 202, 131, .5);
 }
 .splash-emblem { animation: vaultRise 540ms cubic-bezier(.2,.8,.3,1) both; }
-.splash-mark { width: 168px; height: 124px; filter: drop-shadow(0 10px 18px rgba(0,0,0,.55)); }
+.splash-mark { width: 232px; height: 180px; filter: drop-shadow(0 14px 22px rgba(0,0,0,.6)); }
 .splash-title {
-  margin: 12px 0 0;
-  font: 700 clamp(1.75rem, 7vw, 2.35rem)/1.05 Georgia, serif;
-  letter-spacing: .16em;
+  margin: 16px 0 0;
+  font: 700 clamp(1.7rem, 7vw, 2.2rem)/1.05 Georgia, serif;
+  letter-spacing: .05em;
   background: linear-gradient(180deg, #fff0c4, #d6ad5c 55%, #9b702c);
   -webkit-background-clip: text; background-clip: text;
   color: transparent; text-shadow: 0 1px 0 rgba(0,0,0,.4);
   animation: vaultFade 460ms 80ms ease-out both;
 }
-.splash-tagline, .splash-chip, .splash-games, .splash-status,
+.splash-tagline, .splash-chip, .splash-status,
 .splash-progress, .splash-start, .splash-retry, .splash-version {
   animation: vaultFade 460ms ease-out both;
 }
-.splash-tagline { margin: 10px 0 0; font-size: .95rem; line-height: 1.45; color: #cfb98c; animation-delay: 140ms; }
+.splash-tagline { margin: 9px 0 0; font-size: .8rem; line-height: 1.4; color: #cfb98c; animation-delay: 140ms; }
 .splash-chip {
-  margin: 14px 0 0; padding: 5px 14px;
-  font-size: .66rem; font-weight: 700; letter-spacing: .18em;
-  color: #e2c98d; border: 1px solid rgba(214,173,92,.35); border-radius: 999px;
-  background: rgba(214,173,92,.06); animation-delay: 190ms;
+  margin: 12px 0 0; padding: 4px 12px;
+  font-size: .59rem; font-weight: 700; letter-spacing: .14em;
+  color: #e2c98d; border: 1px solid rgba(214,173,92,.3); border-radius: 999px;
+  background: rgba(214,173,92,.05); animation-delay: 190ms;
 }
-.splash-chip span { color: #8d6a30; margin: 0 4px; }
-.splash-games {
-  list-style: none; margin: 18px 0 0; padding: 0;
-  width: 100%; max-width: 300px; display: grid; gap: 6px;
-  animation-delay: 240ms;
-}
-.splash-games li { display: flex; align-items: center; gap: 9px; font-size: .8rem; color: #bda77e; }
-.splash-game-icon {
-  width: 26px; height: 26px; border-radius: 7px; flex: none;
-  display: grid; place-items: center; font-size: .95rem;
-  background: rgba(214,173,92,.1); border: 1px solid rgba(214,173,92,.22);
-}
+.splash-chip span { color: #8d6a30; margin: 0 3px; }
 .splash-status {
-  margin: 26px 0 10px; min-height: 1.2em;
+  margin: 0 0 10px; min-height: 1.2em;
   font-size: .78rem; letter-spacing: .04em; color: #cbae73; animation-delay: 300ms;
 }
 .splash-status.is-error { color: #f0a58f; }
@@ -1241,6 +1253,7 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
   border: 1px solid rgba(231, 202, 131, .7);
   background: linear-gradient(180deg, #3a2a18, #241a10);
   color: #f3dda7;
+  text-transform: uppercase; letter-spacing: .16em;
   box-shadow: 0 10px 24px rgba(0,0,0,.5), inset 0 1px 0 rgba(249,231,180,.14);
 }
 .splash-start:hover:not(:disabled) { background: linear-gradient(180deg, #4a3620, #2e2113); }
@@ -1256,8 +1269,9 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
   color: rgba(203, 174, 115, .6); animation-delay: 360ms;
 }
 @media (max-width: 380px) {
-  .splash-inner { padding: 2rem 1.3rem 1.7rem; }
-  .splash-chip { font-size: .58rem; letter-spacing: .1em; padding: 4px 10px; white-space: nowrap; }
+  .splash-inner { padding: 1.7rem 1.15rem 1.3rem; min-height: 520px; }
+  .splash-mark { width: 196px; height: 152px; }
+  .splash-chip { font-size: .55rem; letter-spacing: .09em; padding: 4px 9px; white-space: nowrap; }
 }
 @keyframes vaultRise {
   from { opacity: 0; transform: translateY(10px) scale(.94); }
