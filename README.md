@@ -15,7 +15,7 @@ Open `index.html` in any modern browser. There is no build step and nothing to i
 - **History** — every finished game, newest first; tap one to reopen its podium. Each row keeps the crown the game was actually played for, so flipping the scoring mode later never rewrites an old result.
 - **Leaderboard** — every player who has finished a game, ranked by win percentage. Solo games and shared-lobby games both count. Register a name there before playing; a name belongs to one player everywhere. A registered player with no games yet can be removed to free the name again.
 - **Rules** — how SOLO and UNO scoring works, card by card.
-- **Refresh** — the circular-arrow button in the top bar fetches the newest build and reloads. It waits for any lobby write to reach the server first, and warns before throwing away points that are typed but not saved, so no score is lost.
+- **Startup** — the VAULT loading splash checks for a newer build, revalidates the app files, loads the leaderboard data and drains pending writes before you enter. If a new build is found it updates during the splash and reloads once. The **Enter Scorelock** button appears only when every check has finished and the app is up to date; a failed check offers **Retry checks** instead.
 
 Scores and the roster live in the browser's `localStorage` (key `noting-more.v2`) and stay there, apart from the leaderboard copy described below. A `noting-more.v1` document from an older version is upgraded automatically on first load. The only things sent to the leaderboard are a player's name, emoji and the final result of each finished game.
 
