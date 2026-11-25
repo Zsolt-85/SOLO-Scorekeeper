@@ -682,8 +682,7 @@
       + '<p class="hint">' + stripHint + '</p></div>'
       + stripButton + '</section>';
 
-    html += '<section class="section"><div class="section-head"><h2>Shelf</h2>'
-      + '<button type="button" class="btn ghost" data-action="open-new-game">Add a game</button></div>'
+    html += '<section class="section"><div class="section-head"><h2>Shelf</h2></div>'
       + '<div class="shelf">' + visible.map(function (type) {
         const count = finishedCountFor(type.id);
         const live = space && space.status().game === type.id;
@@ -809,6 +808,7 @@
       + tabLink(type, 'table', 'Table', effectiveTab)
       + tabLink(type, 'hall', 'Hall of Fame', effectiveTab)
       + tabLink(type, 'log', 'Log', effectiveTab)
+      + tabLink(type, 'rules', 'Rules', effectiveTab)
       + '</nav>';
 
     if (effectiveTab === 'table') html += boxTableHtml(type, active, live);
@@ -1600,7 +1600,8 @@
     html += '<section class="panel rules"><h2>How this app scores</h2>'
       + '<p>Each round, every player types the value of the cards still in their hand. The app adds those values up across the game.</p>'
       + '<p>By default the <strong>fewest points wins</strong> &mdash; the way we play. '
-      + 'Switch to <strong>most points wins</strong> on the home screen for standard UNO/SOLO scoring.</p></section>';
+      + 'Switch to <strong>most points wins</strong> in that game&rsquo;s '
+      + '<strong>House rules</strong> for standard UNO/SOLO scoring.</p></section>';
 
     html += '<section class="panel rules"><h2>SOLO</h2>'
       + '<p class="source">AMIGO, 1993 &middot; Thomas Pauli &middot; 2&ndash;10 players</p>'

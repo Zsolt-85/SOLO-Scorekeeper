@@ -912,7 +912,8 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem;
   }
   .hero-copy .btn, .box-hero .btn, .box-hero .row .btn { width: 100%; }
-  .tab { padding-inline: 0.55rem; font-size: 0.9rem; }
+  .tabs { gap: 0.1rem; }
+  .tab { padding-inline: 0.45rem; font-size: 0.85rem; white-space: nowrap; }
   /* Box header: title and Library share a line, actions sit beneath. */
   .box-topbar > div {
     display: flex; flex-direction: row-reverse; justify-content: space-between;
