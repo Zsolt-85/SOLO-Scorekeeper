@@ -1246,6 +1246,10 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
   ::view-transition-old(app-view), ::view-transition-new(app-view) { animation: none; }
 }
 .btn.primary:active:not(:disabled), .btn:active:not(:disabled) { transform: scale(.98); }
+.tab:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; border-radius: 6px; }
+@media (max-width: 620px) {
+  .tabs { flex-wrap: wrap; }
+}
 
 /* TABLETOP MATERIAL DEPTH — volume visible at rest, no hover required */
 .panel, .continue-strip, .history-card, .rivals-sheet, .victory-sheet,

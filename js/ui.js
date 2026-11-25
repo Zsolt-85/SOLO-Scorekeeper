@@ -474,7 +474,6 @@
       const type = route.id ? backend.getType(route.id) : null;
       if (!type) { navigate('library'); return; }
       if (space && space.status().game !== type.id) { navigate('library'); return; }
-      if (route.tab === 'rules' && type.archived) { navigate('box/' + type.id + '/hall'); return; }
     }
     if (route.name === 'play' && !gameFor(route.id)) {
       if (backend.getGame(route.id)) { navigate('podium/' + route.id); return; }
@@ -1018,7 +1017,7 @@
       + '<p class="tagline">' + (wanted
         ? escapeHtml(wanted.type.name) + ' standings'
         : 'Every game, ranked') + '</p></div>'
-      + '<nav class="topbar-links"><a class="btn ghost" href="#/new-game">Add a game</a></nav></header>';
+      + '<nav class="topbar-links"><a class="btn ghost" href="#/library">Library</a></nav></header>';
     if (wanted) {
       html += '<div class="lb-filters"><a class="btn ghost" href="#/leaderboard">All games</a></div>';
     } else if (!boards.length) {
@@ -1637,7 +1636,7 @@
       + 'player&rsquo;s remaining cards. Play continues until someone reaches <strong>500 points</strong>.</p>'
       + '<p>Because the round winner banks everyone else&rsquo;s leftovers, UNO is a '
       + '<strong>most-points-wins</strong> game &mdash; to score it here, choose &ldquo;Most points wins&rdquo; '
-      + 'on the home screen and enter the round winner&rsquo;s points with zeros for the others.</p>'
+      + 'in that game&rsquo;s House rules and enter the round winner&rsquo;s points with zeros for the others.</p>'
       + '<h3>Card values</h3>'
       + '<table><thead><tr><th>Card left in hand</th><th>Points</th></tr></thead><tbody>'
       + '<tr><td>Number cards 0&ndash;9</td><td>face value</td></tr>'
