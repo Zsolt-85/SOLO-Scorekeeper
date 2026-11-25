@@ -523,7 +523,7 @@
     }
     if (route.name === 'rules') views.rules.innerHTML = renderRules();
     if (route.name === 'settings') views.settings.innerHTML = renderSettings();
-    if (route.name === 'box' && (route.tab || 'table') === 'hall') {
+    if (route.name === 'box' && (route.tab === 'hall' || route.tab === 'log')) {
       const key = 'box/' + route.id;
       if (ui.boardKey !== key) { ui.boardKey = key; loadBoard(); }
     } else if (route.name === 'box' && (route.tab || 'table') === 'table') {
@@ -1271,11 +1271,11 @@
     }
     return head + '<ul class="games board-list log-list">' + results.map(function (result) {
       const players = Array.isArray(result.players) ? result.players : [];
-      const winner = players.filter(function (entry) { return entry && entry.win; })
-        .map(function (entry) { return escapeHtml(entry.name) + ' ' + entry.total; }).join(' & ');
-      const totals = players.map(function (entry) {
-        return escapeHtml(entry.name) + ' ' + entry.total;
-      }).join(' · ');
+      const score = function (value) { return Number.isFinite(value) ? String(value) : '0'; };
+      const winner = players.filter(function (entry) { return entry && entry.name && entry.win; })
+        .map(function (entry) { return escapeHtml(entry.name) + ' ' + score(entry.total); }).join(' & ');
+      const totals = players.filter(function (entry) { return entry && entry.name; })
+        .map(function (entry) { return escapeHtml(entry.name) + ' ' + score(entry.total); }).join(' · ');
       const date = result.at ? escapeHtml(formatDate(result.at)) : '';
       const scope = result.mode === 'lobby' ? ' &middot; live table' : '';
       return '<li><button type="button" class="game-row"'
@@ -1492,7 +1492,8 @@
   // The board is rendered by several pages now; re-render whichever is showing.
   function repaintBoardRoute() {
     const route = currentRoute();
-    if (route.name === 'box' && (!route.tab || route.tab === 'table' || route.tab === 'hall')) render();
+    if (route.name === 'box' && (!route.tab || route.tab === 'table'
+      || route.tab === 'hall' || route.tab === 'log')) render();
     if (route.name === 'leaderboard' || route.name === 'players'
       || route.name === 'history') render();
   }
@@ -2012,7 +2013,8 @@
     ui.historyResultId = null;
     ui.historyCardData = null;
     render();
-    const cards = document.querySelectorAll('[data-action="open-history-result"]');
+    const view = document.querySelector('section[id^="view-"]:not([hidden])');
+    const cards = view ? view.querySelectorAll('[data-action="open-history-result"]') : [];
     for (let i = 0; i < cards.length; i += 1) {
       if (cards[i].getAttribute('data-id') === id) { cards[i].focus(); break; }
     }

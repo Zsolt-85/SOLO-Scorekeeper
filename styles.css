@@ -457,7 +457,11 @@ h1, h2, h3 { margin: 0; line-height: 1.15; }
 .swatch { width: 44px; height: 44px; border-radius: 50%; background: var(--swatch); border: 2px solid transparent; }
 .swatch[aria-pressed="true"] { border-color: white; box-shadow: 0 0 0 2px var(--swatch); }
 .patterns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.pattern-chip { min-height: 44px; padding: 0.4rem 0.6rem; border-radius: 10px; color: var(--ink); background: var(--paper); }
+.pattern-chip {
+  position: relative; overflow: hidden;
+  min-height: 44px; padding: 0.4rem 0.6rem;
+  border-radius: 10px; color: var(--ink); background: var(--paper);
+}
 .pattern-chip[aria-pressed="true"] { outline: 2px solid var(--gold); }
 
 .score-rules, .podium-rules, .box-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.75rem 0; }
