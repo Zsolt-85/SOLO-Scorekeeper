@@ -437,6 +437,9 @@
 
   function lastPlayedFor(typeId) {
     let newest = 0;
+    (boardData().results || []).forEach(function (result) {
+      if (result && Leaderboard.gameOf(result) === typeId && result.at > newest) newest = result.at;
+    });
     backend.finishedGames().forEach(function (game) {
       if (game.typeId === typeId && game.finishedAt > newest) newest = game.finishedAt;
     });
@@ -447,8 +450,8 @@
   }
 
   function finishedCountFor(typeId) {
-    return backend.finishedGames().filter(function (game) {
-      return game.typeId === typeId;
+    return (boardData().results || []).filter(function (result) {
+      return result && Leaderboard.gameOf(result) === typeId;
     }).length;
   }
 
@@ -504,7 +507,10 @@
       if (ui.historyResultId) drawVictoryCard(ui.historyCardData);
     }
     if (route.name === 'players') views.players.innerHTML = renderPlayers();
-    if (route.name === 'box') views.box.innerHTML = renderBox(route.id, route.tab || 'table');
+    if (route.name === 'box') {
+      views.box.innerHTML = renderBox(route.id, route.tab || 'table');
+      if (ui.historyResultId) drawVictoryCard(ui.historyCardData);
+    }
     if (route.name === 'play') views.play.innerHTML = renderGame(route.id);
     if (route.name === 'podium') {
       const key = 'podium/' + (route.id || 'latest');
@@ -814,7 +820,7 @@
     if (effectiveTab === 'hall') html += boxHallHtml(type);
     if (effectiveTab === 'log') html += boxLogHtml(type);
     if (effectiveTab === 'rules') html += houseRulesHtml(type);
-    return html;
+    return html + resultDetailHtml();
   }
 
   function tabLink(type, tab, label, current) {
@@ -1098,6 +1104,20 @@
       + '</button></li>';
   }
 
+  function resultDetailHtml() {
+    if (!ui.historyResultId) return '';
+    return '<div class="victory-overlay" role="dialog" aria-label="Game result">'
+      + '<div class="victory-sheet">'
+      + '<canvas id="victory-canvas" width="900" height="1120" role="img"'
+      + ' aria-label="Shareable scorecard"></canvas>'
+      + '<div class="row"><button type="button" class="btn primary"'
+      + ' data-action="share-victory">Share card</button>'
+      + '<button type="button" class="btn ghost" id="victory-close"'
+      + ' data-action="close-history-result">Close (Esc)</button></div>'
+      + '<p class="hint">Tallest bar = winner · scores on top.</p>'
+      + '</div></div>';
+  }
+
   function renderHistory() {
     const data = boardData();
     const results = (data.results || []).filter(function (result) { return result && result.id; })
@@ -1110,19 +1130,8 @@
       return html + '<div class="empty-state"><p>No finished games yet.</p>'
         + '<p class="hint">Play a game and it will appear here.</p></div>';
     }
-    html += '<ul class="history-grid">' + results.map(historyCardHtml).join('') + '</ul>';
-    if (ui.historyResultId) {
-      html += '<div class="victory-overlay" role="dialog" aria-label="Game result">'
-        + '<div class="victory-sheet">'
-        + '<canvas id="victory-canvas" width="900" height="1120" role="img"'
-        + ' aria-label="Shareable scorecard"></canvas>'
-        + '<div class="row"><button type="button" class="btn primary"'
-        + ' data-action="share-victory">Share card</button>'
-        + '<button type="button" class="btn ghost" id="victory-close"'
-        + ' data-action="close-history-result">Close (Esc)</button></div>'
-        + '<p class="hint">Tallest bar = winner · scores on top.</p>'
-        + '</div></div>';
-    }
+    html += '<ul class="history-grid">' + results.map(historyCardHtml).join('') + '</ul>'
+      + resultDetailHtml();
     return html;
   }
 
@@ -1247,28 +1256,33 @@
   }
 
   function boxLogHtml(type) {
-    const games = backend.finishedGames().filter(function (game) {
-      return game.typeId === type.id;
-    });
+    const data = boardData();
+    const results = (data.results || []).filter(function (result) {
+      return result && result.id && Leaderboard.gameOf(result) === type.id;
+    }).slice().sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
     const head = '<section class="panel board-panel"><div class="board-head"><h2>'
       + escapeHtml(type.name) + ' Log</h2>'
-      + '<p class="board-meta">' + games.length + ' finished game'
-      + (games.length === 1 ? '' : 's') + '</p></div>';
-    if (!games.length) {
-      return head + '<p class="muted">No matches yet. Play a game and it will show up here.</p></section>';
+      + '<p class="board-meta">' + results.length + ' finished game'
+      + (results.length === 1 ? '' : 's') + '</p></div>';
+    if (!results.length) {
+      return head + (data.fallback
+        ? '<p class="muted">Showing games saved on this device.</p>'
+        : '<p class="muted">No matches yet. Play a game and it will show up here.</p>') + '</section>';
     }
-    return head + '<ul class="games board-list log-list">' + games.map(function (game) {
-      const ranked = Ranking.rank(game, Ranking.directionFor(game, true));
-      const winner = ranked.filter(function (entry) { return entry.isWinner; })
-        .map(function (entry) { return entry.seat.name + ' ' + entry.total; }).join(' & ');
-      const others = ranked.map(function (entry) {
-        return escapeHtml(entry.seat.name) + ' ' + entry.total;
+    return head + '<ul class="games board-list log-list">' + results.map(function (result) {
+      const players = Array.isArray(result.players) ? result.players : [];
+      const winner = players.filter(function (entry) { return entry && entry.win; })
+        .map(function (entry) { return escapeHtml(entry.name) + ' ' + entry.total; }).join(' & ');
+      const totals = players.map(function (entry) {
+        return escapeHtml(entry.name) + ' ' + entry.total;
       }).join(' · ');
-      return '<li><button class="game-row" data-action="open-game" data-id="' + game.id + '">'
-        + '<span class="label">' + escapeHtml(formatDate(game.startedAt)) + '</span>'
-        + '<span class="game-winner">🏆 ' + escapeHtml(winner) + '</span>'
-        + '<span class="game-totals">' + others + ' · ' + escapeHtml(ruleLabel(game.rules)) + '</span>'
-        + '</button></li>';
+      const date = result.at ? escapeHtml(formatDate(result.at)) : '';
+      const scope = result.mode === 'lobby' ? ' &middot; live table' : '';
+      return '<li><button type="button" class="game-row"'
+        + ' data-action="open-history-result" data-id="' + escapeHtml(result.id) + '">'
+        + '<span class="label">' + date + scope + '</span>'
+        + '<span class="game-winner">🏆 ' + winner + '</span>'
+        + '<span class="game-totals">' + totals + '</span></button></li>';
     }).join('') + '</ul></section>';
   }
 
