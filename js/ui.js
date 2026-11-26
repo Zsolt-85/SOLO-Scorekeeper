@@ -101,6 +101,17 @@
     };
   }
 
+  const APPBAR_NAMES = {
+    library: 'Library', box: 'Game', play: 'Score pad', podium: 'Podium',
+    leaderboard: 'Leaderboard', history: 'History', players: 'Players',
+    rules: 'How to play', settings: 'Settings', 'new-game': 'New game'
+  };
+
+  function updateAppBar(name) {
+    const label = document.getElementById('appbar-context');
+    if (label) label.textContent = APPBAR_NAMES[name] || 'SCORELOCK';
+  }
+
   function navigate(path) {
     const next = '#/' + path;
     if (location.hash === next) { render(); return; }
@@ -527,6 +538,7 @@
       ui.boardKey = null;
     }
     refreshBanner();
+    updateAppBar(route.name);
     // With View Transitions the whole #app crossfades; the fallback keeps the
     // simple route-enter animation for browsers without that API.
     const hasViewTransitions = typeof document.startViewTransition === 'function';
@@ -2299,7 +2311,12 @@
       ui.lobbyForm = 'join'; ui.addError = ''; render(); focusById('lobby-code');
     }
     else if (action === 'close-lobby-form') { ui.lobbyForm = null; ui.addError = ''; render(); }
-    else if (action === 'toggle-menu') { document.querySelector('.sidebar').classList.toggle('open'); }
+    else if (action === 'toggle-menu') {
+      const menu = document.querySelector('.appbar-menu');
+      const sidebar = document.querySelector('.sidebar');
+      const open = sidebar.classList.toggle('open');
+      if (menu) menu.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
 else if (action === 'open-new-game') openNewGame();
     else if (action === 'open-box') openBox(trigger.getAttribute('data-id'));
     else if (action === 'toggle-archived') { ui.showArchived = !ui.showArchived; render(); }
@@ -2654,8 +2671,9 @@ else if (action === 'open-new-game') openNewGame();
     const reduce = Boolean(window.matchMedia
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     // The splash is modal: keep the app and menu out of the tab order behind it.
-    const background = [document.querySelector('.sidebar'), document.querySelector('.hamburger'),
-      document.getElementById('app')].filter(function (el) { return !!el; });
+    const background = [document.querySelector('.sidebar'), document.querySelector('.appbar'),
+      document.querySelector('.hamburger'), document.getElementById('app')]
+      .filter(function (el) { return !!el; });
     background.forEach(function (el) { el.inert = true; });
 
     const meta = document.querySelector('meta[name="scorelock-version"]');
@@ -2734,7 +2752,8 @@ else if (action === 'open-new-game') openNewGame();
       setTimeout(function () {
         if (splash.parentNode) splash.remove();
         background.forEach(function (el) { el.inert = false; });
-        let target = document.querySelector('.hamburger');
+        let target = document.querySelector('.appbar-menu');
+        if (!target || !target.offsetParent) target = document.querySelector('.hamburger');
         if (!target || !target.offsetParent) {
           target = document.getElementById('app');
           if (target) target.setAttribute('tabindex', '-1');
