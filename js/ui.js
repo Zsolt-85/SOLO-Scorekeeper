@@ -424,6 +424,7 @@
     if (ui.bannerDismissed || !backend.isDegraded()) {
       banner.hidden = true;
       banner.textContent = '';
+      document.body.classList.remove('has-banner');
       return;
     }
     const message = backend.degradedReason() === 'blocked'
@@ -432,6 +433,7 @@
     banner.innerHTML = '<span>' + escapeHtml(message) + '</span>'
       + '<button type="button" class="banner-dismiss" data-action="dismiss-banner" aria-label="Dismiss">Dismiss</button>';
     banner.hidden = false;
+    document.body.classList.add('has-banner');
   }
 
   function lastPlayedFor(typeId) {
