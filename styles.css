@@ -1332,3 +1332,41 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
 .pcard.on { border-color: var(--gold); }
 .pcard.confirming { border-color: var(--lose); }
 .pcard.add-card { border-style: dashed; }
+
+/* FIXED PHONE APP BAR — a permanent frame edge above the scrolling content */
+.appbar { display: none; }
+@media (max-width: 900px) {
+  .hamburger { display: none !important; }
+  .appbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 90;
+    display: flex; align-items: center; gap: 10px;
+    height: calc(56px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 14px 0; box-sizing: border-box;
+    background: linear-gradient(180deg, #2a1e13, #17110b);
+    border-bottom: 1px solid rgba(231, 196, 122, .45);
+    box-shadow: 0 6px 16px rgba(0,0,0,.5), inset 0 -1px 0 rgba(231,196,122,.12);
+  }
+  .appbar-menu {
+    width: 40px; height: 40px; flex: none; padding: 0; cursor: pointer;
+    display: grid; place-items: center; border-radius: 10px;
+    background: rgba(231,196,122,.1); border: 1px solid rgba(231,196,122,.45);
+    color: #e7c47a; font-size: 1.2rem; line-height: 1;
+  }
+  .appbar-menu:hover { background: rgba(231,196,122,.18); }
+  .appbar-menu:focus-visible { outline: 2px solid #e7c47a; outline-offset: 2px; }
+  .appbar-brand {
+    font: 700 1rem/1 Georgia, serif; letter-spacing: .14em;
+    color: #e7c47a; text-decoration: none; white-space: nowrap;
+  }
+  .appbar-context {
+    margin-left: auto;
+    font: 600 .68rem/1.2 Georgia, serif; letter-spacing: .12em;
+    text-transform: uppercase; color: #c4a97b; white-space: nowrap;
+  }
+  #app { padding-top: calc(68px + env(safe-area-inset-top)); }
+}
+@media (max-width: 620px) {
+  .view { padding-top: .75rem; }
+  .view .topbar { margin-bottom: .9rem; }
+  .view .topbar .wordmark { font-size: 1rem; opacity: .85; }
+}
