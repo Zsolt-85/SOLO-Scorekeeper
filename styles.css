@@ -1333,49 +1333,67 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
 .pcard.confirming { border-color: var(--lose); }
 .pcard.add-card { border-style: dashed; }
 
-/* FIXED PHONE APP BAR — a permanent frame edge above the scrolling content */
+/* FIXED APP BAR — a permanent, themed frame edge above the scrolling content */
 .appbar { display: none; }
-@media (max-width: 900px) {
+@media (max-width: 900px), (max-height: 560px) and (pointer: coarse) {
   .hamburger { display: none !important; }
   .appbar {
     position: fixed; top: 0; left: 0; right: 0; z-index: 90;
     display: flex; align-items: center; gap: 10px;
-    height: calc(56px + env(safe-area-inset-top));
-    padding: env(safe-area-inset-top) 14px 0; box-sizing: border-box;
-    background: linear-gradient(180deg, #2a1e13, #17110b);
-    border-bottom: 1px solid rgba(231, 196, 122, .45);
-    box-shadow: 0 6px 16px rgba(0,0,0,.5), inset 0 -1px 0 rgba(231,196,122,.12);
+    height: calc(58px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top)
+      calc(12px + env(safe-area-inset-right)) 0
+      calc(12px + env(safe-area-inset-left));
+    box-sizing: border-box;
+    background: linear-gradient(180deg, var(--panel), var(--bg));
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 6px 18px rgba(0,0,0,.5), inset 0 -1px 0 var(--gold);
+  }
+  .appbar::after {
+    content: ""; position: absolute; inset: 6px; pointer-events: none;
+    border: 1px solid color-mix(in srgb, var(--gold) 22%, transparent);
+    border-radius: 4px;
   }
   .appbar-menu {
-    width: 40px; height: 40px; flex: none; padding: 0; cursor: pointer;
+    width: 44px; height: 44px; flex: none; padding: 0; cursor: pointer;
     display: grid; place-items: center; border-radius: 10px;
-    background: rgba(231,196,122,.1); border: 1px solid rgba(231,196,122,.45);
-    color: #e7c47a; font-size: 1.2rem; line-height: 1;
+    background: var(--panel-2);
+    background: color-mix(in srgb, var(--gold) 14%, var(--panel));
+    border: 1px solid var(--line);
+    border-color: color-mix(in srgb, var(--gold) 55%, var(--line));
+    color: var(--gold); font-size: 1.3rem; line-height: 1;
   }
-  .appbar-menu:hover { background: rgba(231,196,122,.18); }
-  .appbar-menu:focus-visible { outline: 2px solid #e7c47a; outline-offset: 2px; }
+  .appbar-menu:hover {
+    background: color-mix(in srgb, var(--gold) 24%, var(--panel));
+  }
+  .appbar-menu:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   .appbar-brand {
+    position: relative; z-index: 1;
     font: 700 1rem/1 Georgia, serif; letter-spacing: .14em;
-    color: #e7c47a; text-decoration: none; white-space: nowrap;
+    color: var(--gold); text-decoration: none; white-space: nowrap;
   }
   .appbar-context {
-    margin-left: auto;
-    font: 600 .68rem/1.2 Georgia, serif; letter-spacing: .12em;
-    text-transform: uppercase; color: #c4a97b; white-space: nowrap;
+    position: relative; z-index: 1;
+    margin-left: auto; padding: 5px 10px; border-radius: 999px;
+    font: 700 .62rem/1.2 Georgia, serif; letter-spacing: .12em;
+    text-transform: uppercase; white-space: nowrap;
+    color: var(--on-gold); background: var(--gold);
+    border: 1px solid var(--gold);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--gold) 30%, transparent);
   }
-  #app { padding-top: calc(68px + env(safe-area-inset-top)); }
+  #app { padding-top: calc(70px + env(safe-area-inset-top)); }
   /* The open drawer sits below the bar, so its burger can close it again. */
   .sidebar.open ~ .appbar { z-index: 110; }
-  .sidebar.open { padding-top: calc(76px + env(safe-area-inset-top)); }
+  .sidebar.open { padding-top: calc(78px + env(safe-area-inset-top)); }
   /* The storage warning must sit under the frame, not behind it. */
   #banner {
-    position: fixed; top: calc(56px + env(safe-area-inset-top));
+    position: fixed; top: calc(58px + env(safe-area-inset-top));
     left: 0; right: 0; z-index: 89;
     box-shadow: 0 6px 14px rgba(0,0,0,.45);
   }
-  body.has-banner #app { padding-top: calc(112px + env(safe-area-inset-top)); }
+  body.has-banner #app { padding-top: calc(114px + env(safe-area-inset-top)); }
 }
-@media (max-width: 620px) {
+@media (max-width: 620px), (max-height: 560px) and (pointer: coarse) {
   .view { padding-top: .75rem; }
   .view .topbar { margin-bottom: .9rem; }
   .view .topbar .wordmark { font-size: 1rem; opacity: .85; }
