@@ -6,6 +6,7 @@
 
   const KEY = 'noting-more.theme.v1';
   const SKINS = [
+    { id: 'vault', name: 'VAULT', desc: 'Walnut + engraved gold', swatch: '#e7c47a' },
     { id: 'midnight', name: 'Midnight', desc: 'Navy + gold', swatch: '#f0b429' },
     { id: 'felt', name: 'Felt & Brass', desc: 'Green felt, warm brass', swatch: '#c9a227' },
     { id: 'paper', name: 'Paper Club', desc: 'Cream scorecard, ink', swatch: '#98733d' },
@@ -16,11 +17,11 @@
     for (let i = 0; i < SKINS.length; i += 1) {
       if (SKINS[i].id === value) return value;
     }
-    return 'midnight';
+    return 'vault';
   }
 
   function defaults() {
-    return { skin: 'midnight', glow: true };
+    return { skin: 'vault', glow: true };
   }
 
   function loadTheme(storage) {
