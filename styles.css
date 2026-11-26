@@ -1047,6 +1047,31 @@ a.lb-cover:hover .cover, a.lb-cover:focus-visible .cover { transform: translateY
 /* TABLE SKINS — the surface beneath the game.
    Glow and texture are separate layers so "Surface glow" can turn off only the
    glow while felt/paper/neon textures remain. */
+html[data-skin="vault"] {
+  --bg: #17110b; --panel: #241a11; --panel-2: #2e2116; --line: #6b4f2a;
+  --text: #f4e5c2; --muted: #c4a97b; --gold: #e7c47a; --link: #d8b775;
+  --sidebar: #120d08; --on-gold: #241708; --lose: #e08972;
+  --face-top: #332417; --face-bottom: #241a11;
+  --edge: #0a0705; --rim: rgba(247,225,175,.2); --contact: rgba(0,0,0,.55);
+  --radius: 10px; --paper: #efe0bd; --ink: #241708;
+  --glow: radial-gradient(90% 60% at 50% 0%, rgba(198,150,74,.2), transparent 62%);
+  --texture: repeating-linear-gradient(90deg, rgba(231,196,122,.022) 0 1px, transparent 1px 46px),
+    repeating-linear-gradient(0deg, rgba(231,196,122,.018) 0 1px, transparent 1px 46px);
+}
+html[data-skin="vault"] .panel, html[data-skin="vault"] .history-card,
+html[data-skin="vault"] .settings-panel, html[data-skin="vault"] .rivals-sheet,
+html[data-skin="vault"] .victory-sheet {
+  border-color: rgba(231,196,122,.45);
+  box-shadow: inset 0 0 0 1px rgba(231,196,122,.1), 0 14px 34px rgba(0,0,0,.45);
+}
+html[data-skin="vault"] .wordmark { font-family: Georgia, serif; letter-spacing: .09em; }
+html[data-skin="vault"] .btn.primary {
+  background: linear-gradient(180deg, #f0d394, #b3863f);
+  border-color: #e7c47a; color: #241708; font-weight: 700;
+}
+html[data-skin="vault"] .sidebar { border-right: 1px solid rgba(231,196,122,.3); }
+html[data-skin="vault"] .tile.leading,
+html[data-skin="vault"] .tab[aria-current="page"] { border-color: var(--gold); color: var(--gold); }
 html[data-skin="midnight"] {
   --glow: radial-gradient(circle at 15% 0%, rgba(240,180,41,.09), transparent 55%);
   --texture: none;
@@ -1116,6 +1141,10 @@ html[data-skin] .wordmark { background: none; -webkit-text-fill-color: var(--gol
 .skin-neon {
   background: radial-gradient(circle at 70% 20%, #2a2a6e, #0a0b1c 70%),
     repeating-linear-gradient(90deg, transparent 0 22px, rgba(110,193,255,.14) 22px 23px);
+}
+.skin-vault {
+  background: radial-gradient(circle at 30% 20%, #3a2a1a, #17110b 72%),
+    repeating-linear-gradient(90deg, rgba(231,196,122,.06) 0 1px, transparent 1px 24px);
 }
 .skin-name { font-size: 0.8rem; font-weight: 700; }
 .skin-desc { color: var(--muted); font-size: 0.68rem; }
